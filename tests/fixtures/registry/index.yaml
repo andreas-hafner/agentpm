@@ -1,0 +1,10 @@
+version: 1
+entries:
+  - name: registry-codex
+    description: Fixture registry entry
+    repo: ../repos/codex
+    path: .codex/skills/skill-a
+    adapterHint: codex
+    tags:
+      - fixture
+

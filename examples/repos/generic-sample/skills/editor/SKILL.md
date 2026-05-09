@@ -1,0 +1,4 @@
+# Editor
+
+Example generic skill.
+

@@ -1,0 +1,19 @@
+version: 1
+entries:
+  - name: audio-mastering
+    description: Codex mastering workflow helpers
+    repo: ../repos/codex-sample
+    path: .codex/skills/audio-mastering
+    adapterHint: codex
+    tags:
+      - audio
+      - mastering
+  - name: reviewer
+    description: Claude review agent
+    repo: ../repos/claude-sample
+    path: .claude/agents/reviewer
+    adapterHint: claude
+    tags:
+      - review
+      - claude
+

@@ -1,0 +1,26 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "jsx": "react-jsx",
+    "paths": {
+      "@agentpm/adapters": ["packages/adapters/src/index.ts"],
+      "@agentpm/config": ["packages/config/src/index.ts"],
+      "@agentpm/core": ["packages/core/src/index.ts"],
+      "@agentpm/db": ["packages/db/src/index.ts"],
+      "@agentpm/fs": ["packages/fs/src/index.ts"],
+      "@agentpm/git": ["packages/git/src/index.ts"],
+      "@agentpm/registry": ["packages/registry/src/index.ts"],
+      "@agentpm/shared": ["packages/shared/src/index.ts"],
+      "@agentpm/ui": ["packages/ui/src/index.tsx"]
+    }
+  },
+  "include": [
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "packages/**/*.ts",
+    "packages/**/*.tsx",
+    "tests/**/*.ts",
+    "vitest.config.ts"
+  ]
+}

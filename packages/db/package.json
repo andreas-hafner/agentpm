@@ -1,0 +1,15 @@
+{
+  "name": "@agentpm/db",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --target node24 --clean --dts --tsconfig tsconfig.build.json"
+  },
+  "dependencies": {
+    "@agentpm/shared": "workspace:*",
+    "better-sqlite3": "^12.2.0"
+  }
+}

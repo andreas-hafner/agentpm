@@ -1,0 +1,1 @@
+# System OpenAI docs skill

@@ -1,0 +1,4 @@
+# Skill B
+
+Fixture skill.
+

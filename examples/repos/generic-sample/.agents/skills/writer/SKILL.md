@@ -1,0 +1,4 @@
+# Writer
+
+Example generic skill.
+

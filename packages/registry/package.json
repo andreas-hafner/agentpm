@@ -1,0 +1,15 @@
+{
+  "name": "@agentpm/registry",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --target node24 --clean --dts --tsconfig tsconfig.build.json"
+  },
+  "dependencies": {
+    "@agentpm/shared": "workspace:*",
+    "js-yaml": "^4.1.0"
+  }
+}
