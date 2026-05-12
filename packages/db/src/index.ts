@@ -1,9 +1,7 @@
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-import Database from 'better-sqlite3';
-
-import type { Database as DatabaseType } from 'better-sqlite3';
+import { DatabaseSync } from 'node:sqlite';
 
 import type { CacheRepoRecord, CatalogEntryRecord, InstallRecord, SearchResult, SourceRecord } from '@agentpm/shared';
 
@@ -99,12 +97,12 @@ function mapInstall(row: Record<string, unknown>): InstallRecord {
 }
 
 export class AgentPmDatabase {
-  private readonly database: DatabaseType;
+  private readonly database: DatabaseSync;
 
   constructor(filePath: string) {
     mkdirSync(path.dirname(filePath), { recursive: true });
-    this.database = new Database(filePath);
-    this.database.pragma('foreign_keys = ON');
+    this.database = new DatabaseSync(filePath);
+    this.database.exec('PRAGMA foreign_keys = ON');
     this.migrate();
   }
 
@@ -200,8 +198,14 @@ export class AgentPmDatabase {
     `);
 
     statement.run({
-      ...source,
+      id: source.id,
+      kind: source.kind,
+      locator: source.locator,
+      normalizedLocator: source.normalizedLocator,
+      displayName: source.displayName,
       metadataJson: encodeJson(source.metadata),
+      createdAt: source.createdAt,
+      updatedAt: source.updatedAt,
     });
 
     const stored = this.getSource(source.id) ?? this.getSourceByLocator(source.normalizedLocator);
@@ -215,19 +219,19 @@ export class AgentPmDatabase {
     return this.database
       .prepare('select * from sources order by display_name asc')
       .all()
-      .map((row) => mapSource(row as Record<string, unknown>));
+      .map((row) => mapSource(row));
   }
 
   getSource(id: string): SourceRecord | null {
     const row = this.database.prepare('select * from sources where id = ?').get(id);
-    return row ? mapSource(row as Record<string, unknown>) : null;
+    return row ? mapSource(row) : null;
   }
 
   getSourceByLocator(locatorOrId: string): SourceRecord | null {
     const row = this.database
       .prepare('select * from sources where id = ? or locator = ? or normalized_locator = ? limit 1')
       .get(locatorOrId, locatorOrId, locatorOrId);
-    return row ? mapSource(row as Record<string, unknown>) : null;
+    return row ? mapSource(row) : null;
   }
 
   deleteSource(sourceId: string): void {
@@ -235,7 +239,8 @@ export class AgentPmDatabase {
   }
 
   replaceCatalogEntries(sourceId: string, entries: CatalogEntryRecord[]): void {
-    const transaction = this.database.transaction((records: CatalogEntryRecord[]) => {
+    this.database.exec('BEGIN');
+    try {
       this.database.prepare('delete from catalog_entries where source_id = ?').run(sourceId);
       const statement = this.database.prepare(`
         insert into catalog_entries (
@@ -245,16 +250,28 @@ export class AgentPmDatabase {
         )
       `);
 
-      for (const entry of records) {
+      for (const entry of entries) {
         statement.run({
-          ...entry,
+          id: entry.id,
+          sourceId: entry.sourceId,
+          name: entry.name,
+          description: entry.description,
+          repo: entry.repo,
+          ref: entry.ref,
+          path: entry.path,
+          adapterHint: entry.adapterHint,
           tagsJson: encodeJson(entry.tags),
           metadataJson: encodeJson(entry.metadata),
+          createdAt: entry.createdAt,
+          updatedAt: entry.updatedAt,
         });
       }
-    });
 
-    transaction(entries);
+      this.database.exec('COMMIT');
+    } catch (error) {
+      this.database.exec('ROLLBACK');
+      throw error;
+    }
   }
 
   listCatalogEntries(): CatalogEntryRecord[] {
@@ -312,9 +329,16 @@ export class AgentPmDatabase {
           updated_at = excluded.updated_at
       `)
       .run({
-        ...cacheRepo,
+        cacheKey: cacheRepo.cacheKey,
+        sourceId: cacheRepo.sourceId,
+        locator: cacheRepo.locator,
+        kind: cacheRepo.kind,
+        basePath: cacheRepo.basePath,
+        currentRevision: cacheRepo.currentRevision,
         isGit: cacheRepo.isGit ? 1 : 0,
+        layoutSignature: cacheRepo.layoutSignature,
         metadataJson: encodeJson(cacheRepo.metadata),
+        updatedAt: cacheRepo.updatedAt,
       });
 
     const stored = this.getCacheRepo(cacheRepo.cacheKey);
@@ -326,7 +350,7 @@ export class AgentPmDatabase {
 
   getCacheRepo(cacheKey: string): CacheRepoRecord | null {
     const row = this.database.prepare('select * from cache_repos where cache_key = ?').get(cacheKey);
-    return row ? mapCacheRepo(row as Record<string, unknown>) : null;
+    return row ? mapCacheRepo(row) : null;
   }
 
   listCacheRepos(): CacheRepoRecord[] {
@@ -370,9 +394,27 @@ export class AgentPmDatabase {
           updated_at = excluded.updated_at
       `)
       .run({
-        ...install,
+        id: install.id,
+        name: install.name,
+        sourceId: install.sourceId,
+        catalogEntryId: install.catalogEntryId,
+        adapter: install.adapter,
+        scope: install.scope,
+        scopeRoot: install.scopeRoot,
+        targetPath: install.targetPath,
+        linkTarget: install.linkTarget,
+        sourceRelativePath: install.sourceRelativePath,
+        sourceRootRelativePath: install.sourceRootRelativePath,
         selectedItemsJson: encodeJson(install.selectedItems),
+        contentKind: install.contentKind,
+        contentLocator: install.contentLocator,
+        contentRef: install.contentRef,
+        cacheKey: install.cacheKey,
+        installedRevision: install.installedRevision,
+        layoutSignature: install.layoutSignature,
         metadataJson: encodeJson(install.metadata),
+        createdAt: install.createdAt,
+        updatedAt: install.updatedAt,
       });
 
     const stored = this.getInstall(install.id);
@@ -384,7 +426,7 @@ export class AgentPmDatabase {
 
   getInstall(installId: string): InstallRecord | null {
     const row = this.database.prepare('select * from installs where id = ?').get(installId);
-    return row ? mapInstall(row as Record<string, unknown>) : null;
+    return row ? mapInstall(row) : null;
   }
 
   listInstalls(): InstallRecord[] {

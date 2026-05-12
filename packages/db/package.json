@@ -9,7 +9,6 @@
     "build": "tsup src/index.ts --format esm --target node24 --clean --dts --tsconfig tsconfig.build.json"
   },
   "dependencies": {
-    "@agentpm/shared": "workspace:*",
-    "better-sqlite3": "^12.2.0"
+    "@agentpm/shared": "workspace:*"
   }
 }

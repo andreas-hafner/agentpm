@@ -20,7 +20,6 @@ Summarizes the runtime package split and the main command execution flow.
 ## Dependencies
 
 - Commander.js
-- better-sqlite3
 - simple-git
 - Ink
 

@@ -12,14 +12,7 @@
 pnpm install
 ```
 
-If pnpm blocks native postinstall scripts, `better-sqlite3` will not build and AgentPM will fail at runtime. In that case:
-
-```bash
-pnpm config set ignore-scripts false
-cd node_modules/.pnpm/better-sqlite3@12.9.0/node_modules/better-sqlite3
-npm run build-release
-cd ../../../../../
-```
+No native dependencies are required. SQLite is provided by Node.js built-in `node:sqlite`.
 
 ## Validate
 
