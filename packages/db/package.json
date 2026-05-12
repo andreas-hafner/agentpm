@@ -6,7 +6,7 @@
     ".": "./dist/index.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --target node24 --clean --dts --tsconfig tsconfig.build.json"
+    "build": "tsup src/index.ts --format esm --target node24 --clean --dts --tsconfig tsconfig.build.json --external=node:sqlite && node scripts/postbuild.cjs"
   },
   "dependencies": {
     "@agentpm/shared": "workspace:*"

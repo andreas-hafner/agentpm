@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 
 import { AgentPmService, type InstallOptions, type UpdateOptions } from '@agentpm/core';
-import { createPromptApi } from '@agentpm/ui';
+import { createPromptApi, promptToConfirm } from '@agentpm/ui';
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
@@ -87,9 +87,32 @@ function printDoctor(issues: Awaited<ReturnType<AgentPmService['doctor']>>): voi
   }
 }
 
+async function checkFirstStart(service: AgentPmService): Promise<void> {
+  const sources = service.listSources();
+  if (sources.length > 0) {
+    return;
+  }
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    return;
+  }
+
+  const confirmed = await promptToConfirm(
+    'No skill sources configured. Add SkillsHub (skillshub.wtf) as your default registry?',
+    [
+      'SkillsHub indexes 14,000+ open-source AI agent skills',
+      'You can add more sources later with: agentpm source add <url>',
+    ],
+  );
+  if (confirmed) {
+    const result = await service.addSource('https://skillshub.wtf');
+    console.log(`Added ${result.source.displayName} (${result.indexedEntries} entries indexed)`);
+  }
+}
+
 async function withService<T>(callback: (service: AgentPmService) => Promise<T>): Promise<T> {
   const service = new AgentPmService({ prompts: createPromptApi() });
   try {
+    await checkFirstStart(service);
     return await callback(service);
   } finally {
     service.close();
@@ -97,7 +120,12 @@ async function withService<T>(callback: (service: AgentPmService) => Promise<T>)
 }
 
 const program = new Command();
-program.name('agentpm').description('Git-native skill and agent asset manager').version('0.1.0');
+program
+  .name('agentpm')
+  .description('Git-native skill and agent asset manager')
+  .version('0.1.0')
+  .exitOverride()
+  .showHelpAfterError(false);
 
 const source = program.command('source').alias('sources').description('Manage sources');
 source
@@ -242,4 +270,14 @@ program.command('doctor').action(async () => {
   printDoctor(issues);
 });
 
-await program.parseAsync(process.argv);
+try {
+  await program.parseAsync(process.argv);
+} catch (err: unknown) {
+  if (err instanceof Error) {
+    if (err.message === '(outputHelp)' || err.message === program.version()) {
+      process.exit(0);
+    }
+    console.error(`Error: ${err.message}`);
+  }
+  process.exit(1);
+}
