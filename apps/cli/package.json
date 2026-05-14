@@ -1,10 +1,19 @@
 {
-  "name": "agentpm-cli",
+  "name": "agentpm",
   "version": "0.1.0",
+  "description": "Project-aware AI skill orchestration CLI",
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "bin": {
     "agentpm": "./bin/agentpm.js"
   },
+  "files": [
+    "bin",
+    "dist",
+    "package.json"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --target node24 --clean",
     "dev": "tsx src/index.ts",

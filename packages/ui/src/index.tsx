@@ -11,18 +11,27 @@ interface SelectComponentProps<T> {
   reject: (error: Error) => void;
 }
 
-function SelectComponent<T>({ message, options, resolve, reject }: SelectComponentProps<T>): React.JSX.Element {
+function SelectComponent<T>({
+  message,
+  options,
+  resolve,
+  reject,
+}: SelectComponentProps<T>): React.JSX.Element {
   const [index, setIndex] = useState(0);
   const { exit } = useApp();
 
   useInput((input, key) => {
     if (key.upArrow) {
-      setIndex((current: number) => (current === 0 ? options.length - 1 : current - 1));
+      setIndex((current: number) =>
+        current === 0 ? options.length - 1 : current - 1,
+      );
       return;
     }
 
     if (key.downArrow) {
-      setIndex((current: number) => (current === options.length - 1 ? 0 : current + 1));
+      setIndex((current: number) =>
+        current === options.length - 1 ? 0 : current + 1,
+      );
       return;
     }
 
@@ -41,14 +50,16 @@ function SelectComponent<T>({ message, options, resolve, reject }: SelectCompone
   return (
     <Box flexDirection="column">
       <Text>{message}</Text>
-      <Text dimColor>Use arrow keys to choose, Enter to confirm, q to cancel.</Text>
+      <Text dimColor>
+        Use arrow keys to choose, Enter to confirm, q to cancel.
+      </Text>
       <Box flexDirection="column" marginTop={1}>
         {options.map((option, optionIndex) => (
           <Text
             key={`${option.label}-${optionIndex}`}
             {...(optionIndex === index ? { color: 'cyan' as const } : {})}
           >
-            {optionIndex === index ? '›' : ' '} {option.label}
+            {optionIndex === index ? '>' : ' '} {option.label}
             {option.description ? `  ${option.description}` : ''}
           </Text>
         ))}
@@ -63,7 +74,11 @@ interface ConfirmComponentProps {
   resolve: (value: boolean) => void;
 }
 
-function ConfirmComponent({ message, details, resolve }: ConfirmComponentProps): React.JSX.Element {
+function ConfirmComponent({
+  message,
+  details,
+  resolve,
+}: ConfirmComponentProps): React.JSX.Element {
   const [value, setValue] = useState(true);
   const { exit } = useApp();
   const options = useMemo(() => ['Yes', 'No'], []);
@@ -108,9 +123,14 @@ function ConfirmComponent({ message, details, resolve }: ConfirmComponentProps):
   );
 }
 
-export async function promptToSelectOne<T>(message: string, options: SelectOption<T>[]): Promise<T> {
+export async function promptToSelectOne<T>(
+  message: string,
+  options: SelectOption<T>[],
+): Promise<T> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
-    throw new AgentPmError('Interactive selection requires a TTY. Provide a concrete name or flag.');
+    throw new AgentPmError(
+      'Interactive selection requires a TTY. Provide a concrete name or flag.',
+    );
   }
 
   if (options.length === 0) {
@@ -118,18 +138,34 @@ export async function promptToSelectOne<T>(message: string, options: SelectOptio
   }
 
   return new Promise<T>((resolve, reject) => {
-    const instance = render(<SelectComponent message={message} options={options} resolve={resolve} reject={reject} />);
+    const instance = render(
+      <SelectComponent
+        message={message}
+        options={options}
+        resolve={resolve}
+        reject={reject}
+      />,
+    );
     instance.waitUntilExit().catch(reject);
   });
 }
 
-export async function promptToConfirm(message: string, details: string[] = []): Promise<boolean> {
+export async function promptToConfirm(
+  message: string,
+  details: string[] = [],
+): Promise<boolean> {
   if (!process.stdout.isTTY || !process.stdin.isTTY) {
     throw new AgentPmError('Interactive confirmation requires a TTY.');
   }
 
   return new Promise<boolean>((resolve, reject) => {
-    const instance = render(<ConfirmComponent message={message} details={details} resolve={resolve} />);
+    const instance = render(
+      <ConfirmComponent
+        message={message}
+        details={details}
+        resolve={resolve}
+      />,
+    );
     instance.waitUntilExit().catch(reject);
   });
 }

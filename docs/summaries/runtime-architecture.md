@@ -8,6 +8,7 @@ Summarizes the runtime package split and the main command execution flow.
 
 - `apps/cli/src/index.ts`
 - `packages/core/src/index.ts`
+- `packages/config/src/index.ts`
 - `packages/adapters/src/index.ts`
 - `packages/git/src/index.ts`
 - `packages/db/src/index.ts`
@@ -29,7 +30,13 @@ Summarizes the runtime package split and the main command execution flow.
 
 - The CLI stays thin and delegates behavior to `packages/core`.
 - Native layout preservation is the default install strategy.
+- `agentpm.yaml` is the committed project config. `.agentpmrc` is an optional local override or compatibility fallback.
+- Project config sources support shorthands such as `skills.sh`, `skillshub.wtf`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`.
+- `AgentPmService.resolveRuntimeContext()` builds global/project/temporary skill layers without creating project runtime folders.
+- Project install/sync writes generated target paths to `.git/info/exclude` when a scope root is a Git repository.
 - Adapter detection scans supported roots for marker files, so nested collections inside `skills/` can still be indexed and installed.
+- Adapter detection also recognizes `.codex.cloud/skills` and reports install scripts as risks without executing them.
 - Git cache directories use shortened hashed paths so sparse clones stay within Windows path-length limits.
 - Registry sources include the skills.sh API (auth required) and the SkillsHub API (skillshub.wtf, no auth, 1000-entry cap).
+- Private HTTP registry indexes can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 - On first start (no sources in DB, TTY available), the CLI prompts to add SkillsHub as the default registry.

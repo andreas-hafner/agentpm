@@ -22,19 +22,26 @@ function toRecord(value: unknown): Record<string, unknown> {
 }
 
 function coerceEntry(entry: Record<string, unknown>): RegistryIndexEntry {
-  const tags = Array.isArray(entry.tags) ? entry.tags.filter((tag): tag is string => typeof tag === 'string') : [];
+  const tags = Array.isArray(entry.tags)
+    ? entry.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
   const adapterHint =
-    entry.adapterHint === 'generic' || entry.adapterHint === 'codex' || entry.adapterHint === 'claude'
+    entry.adapterHint === 'generic' ||
+    entry.adapterHint === 'codex' ||
+    entry.adapterHint === 'claude'
       ? entry.adapterHint
       : undefined;
 
   if (typeof entry.name !== 'string' || typeof entry.repo !== 'string') {
-    throw new AgentPmError('Registry entries must include string "name" and "repo" fields.');
+    throw new AgentPmError(
+      'Registry entries must include string "name" and "repo" fields.',
+    );
   }
 
   return {
     name: entry.name,
-    description: typeof entry.description === 'string' ? entry.description : undefined,
+    description:
+      typeof entry.description === 'string' ? entry.description : undefined,
     repo: entry.repo,
     ref: typeof entry.ref === 'string' ? entry.ref : undefined,
     path: typeof entry.path === 'string' ? entry.path : undefined,
@@ -43,9 +50,13 @@ function coerceEntry(entry: Record<string, unknown>): RegistryIndexEntry {
   };
 }
 
-function parseRegistryContent(locator: string, content: string): RegistryIndexFile {
+function parseRegistryContent(
+  locator: string,
+  content: string,
+): RegistryIndexFile {
   const extension = path.extname(locator).toLowerCase();
-  const parsed: unknown = extension === '.json' ? JSON.parse(content) : yaml.load(content);
+  const parsed: unknown =
+    extension === '.json' ? JSON.parse(content) : yaml.load(content);
 
   if (Array.isArray(parsed)) {
     return {
@@ -88,7 +99,9 @@ interface SkillsShResponse {
 }
 
 function getSkillsShApiKey(): string | undefined {
-  return process.env.SKILLS_SH_API_KEY || process.env.SKILLS_API_KEY || undefined;
+  return (
+    process.env.SKILLS_SH_API_KEY || process.env.SKILLS_API_KEY || undefined
+  );
 }
 
 function resolveSkillsShApiUrl(locator: string): string {
@@ -99,7 +112,11 @@ function resolveSkillsShApiUrl(locator: string): string {
   return `${url.protocol}//${url.host}/api/v1/skills`;
 }
 
-function httpsGet(url: string, headers?: Record<string, string>, redirects = 5): Promise<string> {
+function httpsGet(
+  url: string,
+  headers?: Record<string, string>,
+  redirects = 5,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const opts: https.RequestOptions = {
@@ -108,7 +125,12 @@ function httpsGet(url: string, headers?: Record<string, string>, redirects = 5):
       headers: { 'User-Agent': 'agentpm/0.1.0', ...headers },
     };
     const req = https.get(opts, (res) => {
-      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+      if (
+        res.statusCode &&
+        res.statusCode >= 300 &&
+        res.statusCode < 400 &&
+        res.headers.location
+      ) {
         if (redirects <= 0) {
           reject(new AgentPmError(`Too many redirects fetching ${url}`));
           return;
@@ -122,7 +144,9 @@ function httpsGet(url: string, headers?: Record<string, string>, redirects = 5):
       res.on('data', (chunk: Buffer) => chunks.push(chunk));
       res.on('end', () => {
         if (!res.statusCode || res.statusCode >= 400) {
-          reject(new AgentPmError(`Failed to fetch ${url} (${res.statusCode})`));
+          reject(
+            new AgentPmError(`Failed to fetch ${url} (${res.statusCode})`),
+          );
           return;
         }
         resolve(Buffer.concat(chunks).toString('utf8'));
@@ -134,7 +158,30 @@ function httpsGet(url: string, headers?: Record<string, string>, redirects = 5):
   });
 }
 
-async function fetchSkillsShPage(apiUrl: string, page: number, perPage: number): Promise<SkillsShResponse> {
+function registryTokenEnvName(locator: string): string {
+  const host = new URL(locator).hostname
+    .replace(/[^a-z0-9]/gi, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+  return `AGENTPM_REGISTRY_TOKEN_${host}`;
+}
+
+function getRegistryHeaders(
+  locator: string,
+): Record<string, string> | undefined {
+  const hostToken = process.env[registryTokenEnvName(locator)];
+  const token = hostToken || process.env.AGENTPM_REGISTRY_TOKEN;
+  if (!token) {
+    return undefined;
+  }
+  return { Authorization: `Bearer ${token}` };
+}
+
+async function fetchSkillsShPage(
+  apiUrl: string,
+  page: number,
+  perPage: number,
+): Promise<SkillsShResponse> {
   const url = new URL(apiUrl);
   url.searchParams.set('page', String(page));
   url.searchParams.set('per_page', String(perPage));
@@ -221,7 +268,11 @@ function resolveSkillsHubApiUrl(locator: string): string {
   return `${url.protocol}//${url.host}/api/v1/skills/search`;
 }
 
-async function fetchSkillsHubPage(apiUrl: string, page: number, limit: number): Promise<SkillsHubResponse> {
+async function fetchSkillsHubPage(
+  apiUrl: string,
+  page: number,
+  limit: number,
+): Promise<SkillsHubResponse> {
   const url = new URL(apiUrl);
   url.searchParams.set('page', String(page));
   url.searchParams.set('limit', String(limit));
@@ -256,7 +307,9 @@ async function loadSkillsHubIndex(locator: string): Promise<RegistryIndexFile> {
   return { version: 1, entries };
 }
 
-export async function loadRegistryIndex(locator: string): Promise<RegistryIndexFile> {
+export async function loadRegistryIndex(
+  locator: string,
+): Promise<RegistryIndexFile> {
   if (isSkillsShLocator(locator)) {
     return loadSkillsShIndex(locator);
   }
@@ -269,7 +322,7 @@ export async function loadRegistryIndex(locator: string): Promise<RegistryIndexF
 
 export async function readRegistryLocator(locator: string): Promise<string> {
   if (isHttpUrl(locator)) {
-    return httpsGet(locator);
+    return httpsGet(locator, getRegistryHeaders(locator));
   }
 
   const absolutePath = path.resolve(locator);

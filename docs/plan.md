@@ -9,8 +9,8 @@
 
 ## Key Changes
 
-- `packages/shared`: domain types, identifiers, manifest types, diff/diagnostic models, and shared helpers.
-- `packages/config`: global config and `agentpm.yaml` manifest loading/saving plus AgentPM home path resolution.
+- `packages/shared`: domain types, identifiers, project config and manifest types, diff/diagnostic models, and shared helpers.
+- `packages/config`: global config, committed `agentpm.yaml` loading/saving, optional `.agentpmrc` local override loading, plus AgentPM home path resolution.
 - `packages/db`: SQLite schema, migrations, and repositories for sources, catalog entries, cache state, and installs.
 - `packages/git`: Git URL handling, shallow sparse releases, remote HEAD resolution, and local Git revision helpers.
 - `packages/registry`: static YAML/JSON registry index parsing and catalog entry normalization.
@@ -28,8 +28,7 @@
 
 ## Assumptions
 
-- MVP “public registry” support is a static YAML/JSON index source, not an HTTP API.
-- `agentpm.yaml` acts as both manifest and lockfile in v1.
+- Public and private registry support starts with static YAML/JSON indexes, plus supported API-backed public registry adapters.
+- `agentpm.yaml` acts as the committed project setup config in v1. `.agentpmrc` is a local-only override or compatibility fallback.
 - `sync` reconciles project and workspace installs only; global installs remain machine-local by default.
 - Install scripts are detected and surfaced as warnings but are never auto-run in MVP.
-

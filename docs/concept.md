@@ -462,7 +462,7 @@ agentpm.yaml
 sources:
   - git@github.com:me/private-skills.git
 
-installed:
+skills:
   - audio-mastering
   - loop-builder
 

@@ -14,7 +14,10 @@ describe('install and manifest flows', () => {
     const projectDir = await makeTempDir('agentpm-project-');
     await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
 
-    const service = new AgentPmService({ cwd: projectDir, env: { AGENTPM_HOME: homeDir } });
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     try {
       await service.addSource(sourceDir);
       const installs = await service.install(['skill-b'], { scope: 'project' });
@@ -25,9 +28,14 @@ describe('install and manifest flows', () => {
 
       const manifest = await service.initManifest();
       expect(manifest.manifest.installs[0]?.name).toBe('skill-b');
+      expect(
+        await fs.readFile(path.join(projectDir, 'agentpm.yaml'), 'utf8'),
+      ).toContain('skill-b');
 
       const doctorIssues = await service.doctor();
-      expect(doctorIssues.filter((issue) => issue.severity === 'error')).toHaveLength(0);
+      expect(
+        doctorIssues.filter((issue) => issue.severity === 'error'),
+      ).toHaveLength(0);
     } finally {
       service.close();
     }
@@ -40,7 +48,10 @@ describe('install and manifest flows', () => {
     const projectB = await makeTempDir('agentpm-project-b-');
     await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
 
-    const serviceA = new AgentPmService({ cwd: projectA, env: { AGENTPM_HOME: homeDir } });
+    const serviceA = new AgentPmService({
+      cwd: projectA,
+      env: { AGENTPM_HOME: homeDir },
+    });
     try {
       await serviceA.addSource(sourceDir);
       await serviceA.install(['skill-b'], { scope: 'project' });
@@ -49,13 +60,21 @@ describe('install and manifest flows', () => {
       serviceA.close();
     }
 
-    await fs.copyFile(path.join(projectA, 'agentpm.yaml'), path.join(projectB, 'agentpm.yaml'));
+    await fs.copyFile(
+      path.join(projectA, 'agentpm.yaml'),
+      path.join(projectB, 'agentpm.yaml'),
+    );
 
-    const serviceB = new AgentPmService({ cwd: projectB, env: { AGENTPM_HOME: homeDir } });
+    const serviceB = new AgentPmService({
+      cwd: projectB,
+      env: { AGENTPM_HOME: homeDir },
+    });
     try {
       const installs = await serviceB.syncManifest();
       expect(installs.some((install) => install.name === 'skill-b')).toBe(true);
-      expect(await fs.lstat(path.join(projectB, '.agents', 'skills', 'skill-b'))).toBeTruthy();
+      expect(
+        await fs.lstat(path.join(projectB, '.agents', 'skills', 'skill-b')),
+      ).toBeTruthy();
     } finally {
       serviceB.close();
     }
@@ -66,7 +85,10 @@ describe('install and manifest flows', () => {
     const projectDir = await makeTempDir('agentpm-project-');
     const repoDir = path.resolve('tests/fixtures/repos/nested-skills');
 
-    const service = new AgentPmService({ cwd: projectDir, env: { AGENTPM_HOME: homeDir } });
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     try {
       const addedSource = await service.addSource(repoDir);
       expect(addedSource.indexedEntries).toBe(2);
@@ -78,11 +100,158 @@ describe('install and manifest flows', () => {
 
       expect(installs).toHaveLength(1);
       expect(installs[0]?.name).toBe('openai-docs');
-      expect(installs[0]?.sourceRelativePath).toBe('skills/.curated/openai-docs');
+      expect(installs[0]?.sourceRelativePath).toBe(
+        'skills/.curated/openai-docs',
+      );
 
-      const installedPath = path.join(projectDir, 'skills', '.curated', 'openai-docs', 'SKILL.md');
+      const installedPath = path.join(
+        projectDir,
+        'skills',
+        '.curated',
+        'openai-docs',
+        'SKILL.md',
+      );
       const installedContent = await fs.readFile(installedPath, 'utf8');
       expect(installedContent).toContain('Curated OpenAI docs skill');
+    } finally {
+      service.close();
+    }
+  });
+
+  test('sync reads agentpm.yaml, resolves sources in order, and excludes generated targets locally', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      `sources:\n  - ${JSON.stringify(`local:${sourceDir}`)}\nscope: project\nskills:\n  - skill-b\n`,
+      'utf8',
+    );
+    initFixtureGitRepo(projectDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const installs = await service.syncManifest();
+      expect(installs.map((install) => install.name)).toEqual(['skill-b']);
+      expect(
+        await fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b')),
+      ).toBeTruthy();
+
+      const exclude = await fs.readFile(
+        path.join(projectDir, '.git', 'info', 'exclude'),
+        'utf8',
+      );
+      expect(exclude).toContain('.agents/skills/skill-b/');
+    } finally {
+      service.close();
+    }
+  });
+
+  test('resolves project and temporary runtime layers without adding project targets', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      `sources:\n  - ${JSON.stringify(`local:${sourceDir}`)}\nskills:\n  - skill-b\n`,
+      'utf8',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const graph = await service.resolveRuntimeContext({
+        temporarySkills: ['skill-b'],
+      });
+      expect(graph.configPath).toBe(path.join(projectDir, 'agentpm.yaml'));
+      expect(graph.layers.project[0]?.name).toBe('skill-b');
+      expect(graph.layers.project[0]?.targetPath).toBeNull();
+      expect(graph.layers.temporary[0]?.name).toBe('skill-b');
+      await expect(
+        fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b')),
+      ).rejects.toThrow();
+    } finally {
+      service.close();
+    }
+  });
+
+  test('sync supports source aliases and registry-prefixed private indexes', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const workspace = await makeTempDir('agentpm-workspace-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(
+      path.resolve('tests/fixtures/registry'),
+      path.join(workspace, 'registry'),
+    );
+    await copyDir(
+      path.resolve('tests/fixtures/repos/codex'),
+      path.join(workspace, 'repos', 'codex'),
+    );
+
+    const registryPath = path.join(workspace, 'registry', 'index.yaml');
+    await fs.writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      [
+        'sources:',
+        '  - id: enterprise',
+        `    locator: ${JSON.stringify(`registry:${registryPath}`)}`,
+        'skills:',
+        '  - name: registry-codex',
+        '    source: enterprise',
+        '    items:',
+        '      - registry-codex',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const installs = await service.syncManifest();
+      expect(installs.map((install) => install.name)).toEqual(['skill-a']);
+      expect(
+        await fs.lstat(path.join(projectDir, '.codex', 'skills', 'skill-a')),
+      ).toBeTruthy();
+      const graph = await service.resolveRuntimeContext();
+      expect(graph.layers.project[0]?.name).toBe('registry-codex');
+      expect(graph.layers.project[0]?.targetPath).toBe(
+        path.join(projectDir, '.codex', 'skills', 'skill-a'),
+      );
+    } finally {
+      service.close();
+    }
+  });
+
+  test('loads .agentpmrc only as a local compatibility fallback', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(
+      path.join(projectDir, '.agentpmrc'),
+      `sources:\n  - ${JSON.stringify(`local:${sourceDir}`)}\nskills:\n  - skill-b\n`,
+      'utf8',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const graph = await service.resolveRuntimeContext();
+      expect(graph.configPath).toBe(path.join(projectDir, '.agentpmrc'));
+      expect(graph.warnings[0]).toContain('compatibility fallback');
+      expect(graph.layers.project[0]?.name).toBe('skill-b');
     } finally {
       service.close();
     }
@@ -97,12 +266,17 @@ describe('install and manifest flows', () => {
     await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
     initFixtureGitRepo(sourceDir);
 
-    const service = new AgentPmService({ cwd: projectDir, env: { AGENTPM_HOME: homeDir } });
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     try {
       await service.addSource(sourceDir);
       const installs = await service.install(['skill-b'], { scope: 'project' });
       expect(installs).toHaveLength(1);
-      expect(await fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b'))).toBeTruthy();
+      expect(
+        await fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b')),
+      ).toBeTruthy();
     } finally {
       service.close();
     }

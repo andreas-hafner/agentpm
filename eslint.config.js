@@ -11,24 +11,59 @@ module.exports = tseslint.config(
       '**/coverage/**',
       'apps/cli/bin/**',
       'eslint.config.js',
-      'prettier.config.mjs'
-    ]
+      'prettier.config.mjs',
+    ],
   },
-  js.configs.recommended,
-  ...tseslint.configs.recommendedTypeChecked,
+  {
+    files: ['**/*.{js,cjs}'],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'commonjs',
+      globals: {
+        __dirname: 'readonly',
+        console: 'readonly',
+        module: 'readonly',
+        process: 'readonly',
+        require: 'readonly',
+      },
+    },
+  },
+  {
+    files: ['**/*.mjs'],
+    ...js.configs.recommended,
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        console: 'readonly',
+        process: 'readonly',
+      },
+    },
+  },
+  ...tseslint.configs.recommendedTypeChecked.map((config) => ({
+    ...config,
+    files: ['**/*.{ts,tsx}'],
+  })),
   {
     files: ['**/*.ts', '**/*.tsx'],
     languageOptions: {
       parserOptions: {
         project: './tsconfig.json',
-        tsconfigRootDir: __dirname
-      }
+        tsconfigRootDir: __dirname,
+      },
     },
     rules: {
-      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
+      '@typescript-eslint/consistent-type-imports': [
+        'error',
+        { prefer: 'type-imports' },
+      ],
       '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-promises': ['error', { checksVoidReturn: false }]
-    }
+      '@typescript-eslint/no-misused-promises': [
+        'error',
+        { checksVoidReturn: false },
+      ],
+    },
   },
-  prettier
+  prettier,
 );

@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 
 export const MANIFEST_VERSION = 1;
+export const PROJECT_CONFIG_VERSION = 1;
 export const GLOBAL_CONFIG_VERSION = 1;
 
 export type SourceKind = 'git' | 'local' | 'registry';
@@ -157,7 +158,7 @@ export interface ManifestSourceSpec {
 
 export interface ManifestInstallSpec {
   name: string;
-  source: string;
+  source?: string | undefined;
   items: string[];
   scope: LocalInstallScope;
   ref?: string | undefined;
@@ -172,11 +173,43 @@ export interface ManifestFile {
   installs: ManifestInstallSpec[];
 }
 
+export type ProjectSourceSpec = string | ManifestSourceSpec;
+
+export interface ProjectSkillObjectSpec {
+  name: string;
+  source?: string | undefined;
+  items?: string[] | undefined;
+  scope?: LocalInstallScope | undefined;
+  ref?: string | undefined;
+  revision?: string | undefined;
+  adapter?: AdapterId | undefined;
+  workspaceRoot?: string | undefined;
+}
+
+export type ProjectSkillSpec = string | ProjectSkillObjectSpec;
+
+export interface ProjectConfigFile {
+  version?: number | undefined;
+  sources?: ProjectSourceSpec[] | undefined;
+  skills?: ProjectSkillSpec[] | undefined;
+  scope?: LocalInstallScope | undefined;
+}
+
+export interface LoadedProjectConfig {
+  configPath: string;
+  localConfigPath?: string | undefined;
+  format: 'agentpm.yaml' | '.agentpmrc';
+  manifest: ManifestFile;
+  warnings: string[];
+}
+
 export interface GlobalConfigFile {
   version: number;
-  defaults?: {
-    workspaceRoot?: string | undefined;
-  } | undefined;
+  defaults?:
+    | {
+        workspaceRoot?: string | undefined;
+      }
+    | undefined;
 }
 
 export interface SearchResult {
@@ -204,6 +237,29 @@ export interface UpdatePreview {
   risk: LayoutMigrationRisk;
   warnings: string[];
   nextLinkTarget: string | null;
+}
+
+export type RuntimeContextLayer = 'global' | 'project' | 'temporary';
+
+export interface RuntimeContextEntry {
+  layer: RuntimeContextLayer;
+  name: string;
+  sourceId: string | null;
+  sourceLocator: string | null;
+  adapter: AdapterId | null;
+  sourceRelativePath: string | null;
+  targetPath: string | null;
+  linkTarget: string | null;
+  scope: InstallScope | null;
+  warnings: string[];
+}
+
+export interface RuntimeContextGraph {
+  cwd: string;
+  configPath: string | null;
+  sources: SourceRecord[];
+  layers: Record<RuntimeContextLayer, RuntimeContextEntry[]>;
+  warnings: string[];
 }
 
 export interface DoctorIssue {
@@ -241,11 +297,13 @@ export function stableHash(value: unknown): string {
 }
 
 export function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'item';
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'item'
+  );
 }
 
 export function makeId(prefix: string, ...parts: string[]): string {
@@ -297,7 +355,10 @@ export function uniqueBy<T>(items: T[], keyFn: (item: T) => string): T[] {
   return result;
 }
 
-export function sortBy<T>(items: T[], keyFn: (item: T) => string | number): T[] {
+export function sortBy<T>(
+  items: T[],
+  keyFn: (item: T) => string | number,
+): T[] {
   return [...items].sort((left, right) => {
     const leftKey = keyFn(left);
     const rightKey = keyFn(right);
@@ -313,17 +374,45 @@ export function sortBy<T>(items: T[], keyFn: (item: T) => string | number): T[] 
 
 export function classifyLocator(locator: string): SourceKind {
   const normalized = locator.trim();
+  if (
+    normalized === 'skills.sh' ||
+    normalized === 'www.skills.sh' ||
+    normalized === 'skillshub.wtf'
+  ) {
+    return 'registry';
+  }
+  if (
+    normalized.startsWith('registry:') ||
+    normalized.startsWith('registry+https://')
+  ) {
+    return 'registry';
+  }
+  if (normalized.startsWith('github:')) {
+    return 'git';
+  }
+  if (normalized.startsWith('local:')) {
+    return 'local';
+  }
   const ext = path.extname(normalized).toLowerCase();
   if (ext === '.yaml' || ext === '.yml' || ext === '.json') {
     return 'registry';
   }
-  if (isHttpUrl(normalized) && (normalized.endsWith('.yaml') || normalized.endsWith('.yml') || normalized.endsWith('.json'))) {
+  if (
+    isHttpUrl(normalized) &&
+    (normalized.endsWith('.yaml') ||
+      normalized.endsWith('.yml') ||
+      normalized.endsWith('.json'))
+  ) {
     return 'registry';
   }
   if (isSkillsShLocator(normalized) || isSkillsHubLocator(normalized)) {
     return 'registry';
   }
-  if (isHttpUrl(normalized) || isGitSshLocator(normalized) || normalized.endsWith('.git')) {
+  if (
+    isHttpUrl(normalized) ||
+    isGitSshLocator(normalized) ||
+    normalized.endsWith('.git')
+  ) {
     return 'git';
   }
   return 'local';
