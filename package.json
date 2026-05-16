@@ -9,6 +9,8 @@
     "build": "turbo run build",
     "dev": "cross-env NODE_OPTIONS=--no-warnings turbo run dev",
     "start": "node --no-warnings apps/cli/bin/agentpm.js",
+    "link:global": "pnpm build && cd apps/cli && pnpm link --global",
+    "install:global": "pnpm build && cd apps/cli && pnpm add -g .",
     "smoke": "pnpm build && node scripts/smoke.mjs",
     "lint": "eslint .",
     "test": "vitest run",

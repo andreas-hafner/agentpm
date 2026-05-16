@@ -1,22 +1,31 @@
 # AgentPM — Universal Skill & Agent Package Manager (Concept)
 
+This document is long-term concept material. The current publishable MVP is the
+direct detailed project skills workflow described in [plan.md](./plan.md):
+committed `agentpm.yaml`, direct `skills` entries, source binding, `target`
+selection, ref/revision pinning, private-first sources, and no lockfile or
+transitive dependency solver yet.
+
+The sections below are retained as product background and may describe future
+work beyond the current MVP.
+
 ## Vision
 
 Build a **Git-native package manager for AI skills and agent assets**.
 
 A developer should be able to:
 
-* discover skills
-* install skills
-* update skills
-* remove skills
-* pin versions
-* compare changes
-* use public registries
-* use private registries
-* use local folders
-* install globally or project-bound
-* selectively install only what is needed
+- discover skills
+- install skills
+- update skills
+- remove skills
+- pin versions
+- compare changes
+- use public registries
+- use private registries
+- use local folders
+- install globally or project-bound
+- selectively install only what is needed
 
 without manually cloning repositories, running install scripts, or copying files around.
 
@@ -36,15 +45,15 @@ but **Git-native**, **adapter-based**, and **compatible with existing ecosystems
 
 Today, AI skills are fragmented:
 
-* public registries exist
-* private Git repos exist
-* local skill folders exist
-* repositories have inconsistent structures
-* installation is often manual
-* updates are manual
-* version awareness is weak
-* diffing changes is hard
-* project-scoped skill setup is cumbersome
+- public registries exist
+- private Git repos exist
+- local skill folders exist
+- repositories have inconsistent structures
+- installation is often manual
+- updates are manual
+- version awareness is weak
+- diffing changes is hard
+- project-scoped skill setup is cumbersome
 
 Typical workflow today:
 
@@ -65,11 +74,11 @@ AgentPM manages **repositories as installable skill sources**.
 
 Supports:
 
-* public registries
-* private GitHub repositories
-* private GitLab repositories
-* local folders
-* curated company registries
+- public registries
+- private GitHub repositories
+- private GitLab repositories
+- local folders
+- curated company registries
 
 Examples:
 
@@ -138,10 +147,10 @@ not transformed.
 
 Reason:
 
-* safest
-* most compatible
-* easiest updates
-* least surprising
+- safest
+- most compatible
+- easiest updates
+- least surprising
 
 Optional portability adapters may expose them elsewhere.
 
@@ -155,11 +164,11 @@ AgentPM never owns content.
 
 AgentPM manages:
 
-* discovery
-* installation
-* update tracking
-* symlinks / mapping
-* metadata
+- discovery
+- installation
+- update tracking
+- symlinks / mapping
+- metadata
 
 ---
 
@@ -188,12 +197,12 @@ too provider-specific / messy.
 
 Pluggable providers:
 
-* Public registry (skills.sh-like)
-* GitHub repo
-* GitLab repo
-* Local folder
-* Company registry
-* Custom registry API
+- Public registry (skills.sh-like)
+- GitHub repo
+- GitLab repo
+- Local folder
+- Company registry
+- Custom registry API
 
 Config:
 
@@ -213,11 +222,11 @@ Scan repository.
 
 Detect:
 
-* skill folders
-* agent folders
-* subagents
-* install scripts
-* metadata files
+- skill folders
+- agent folders
+- subagents
+- install scripts
+- metadata files
 
 Example:
 
@@ -240,17 +249,17 @@ Adapters understand formats.
 
 Examples:
 
-* Codex adapter
-* Generic `.agents` adapter
-* Claude adapter
-* Custom adapter
+- Codex adapter
+- Generic `.agents` adapter
+- Claude adapter
+- Custom adapter
 
 Responsibilities:
 
-* detect layout
-* determine compatibility
-* install mapping
-* validate update migrations
+- detect layout
+- determine compatibility
+- install mapping
+- validate update migrations
 
 ---
 
@@ -336,16 +345,16 @@ Example:
 
 Private repo contains:
 
-* audio
-* video
-* coding
-* marketing
-* writing
+- audio
+- video
+- coding
+- marketing
+- writing
 
 User only installs:
 
-* audio
-* video
+- audio
+- video
 
 ---
 
@@ -391,10 +400,10 @@ Install via symlink:
 
 Benefits:
 
-* easy updates
-* rollback possible
-* diff possible
-* minimal duplication
+- easy updates
+- rollback possible
+- diff possible
+- minimal duplication
 
 ---
 
@@ -402,10 +411,10 @@ Benefits:
 
 Track:
 
-* source repo
-* installed commit SHA
-* detected structure
-* install target
+- source repo
+- installed commit SHA
+- detected structure
+- install target
 
 Example:
 
@@ -518,13 +527,13 @@ Broken: 1
 
 Features:
 
-* Add source
-* Update all
-* Open config
-* View diff
-* Enable / disable
-* Scope management
-* Search registry
+- Add source
+- Update all
+- Open config
+- View diff
+- Enable / disable
+- Scope management
+- Search registry
 
 Potential desktop shell later.
 
@@ -536,18 +545,18 @@ CLI first.
 
 Enterprise:
 
-* private registry hosting
-* SSO login
-* access control
-* audit logs
-* signing / verification
-* internal company marketplace
-* policy enforcement
+- private registry hosting
+- SSO login
+- access control
+- audit logs
+- signing / verification
+- internal company marketplace
+- policy enforcement
 
 Comparable to:
 
-* private npm registry
-* private container registry
+- private npm registry
+- private container registry
 
 ---
 

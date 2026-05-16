@@ -109,6 +109,12 @@ export interface AdapterCompatibility {
   reasons: string[];
 }
 
+export interface InspectionTrust {
+  trusted: boolean;
+  score: number;
+  reasons: string[];
+}
+
 export interface InspectionReport {
   locator: string;
   sourceKind: SourceKind;
@@ -117,6 +123,7 @@ export interface InspectionReport {
   scripts: DetectedScript[];
   compatibleAdapters: AdapterCompatibility[];
   installable: boolean;
+  trust: InspectionTrust;
   warnings: string[];
   layoutSignature: string;
 }
@@ -142,6 +149,7 @@ export interface RegistryIndexEntry {
   ref?: string | undefined;
   path?: string | undefined;
   adapterHint?: AdapterId | undefined;
+  target?: AdapterId | undefined;
   tags?: string[] | undefined;
 }
 
@@ -163,14 +171,25 @@ export interface ManifestInstallSpec {
   scope: LocalInstallScope;
   ref?: string | undefined;
   revision?: string | undefined;
+  target?: AdapterId | undefined;
   adapter?: AdapterId | undefined;
   workspaceRoot?: string | undefined;
+}
+
+export type PushTargetKind = 'git' | 'registry';
+
+export interface ManifestPushTargetSpec {
+  id?: string | undefined;
+  locator: string;
+  kind?: PushTargetKind | undefined;
+  default?: boolean | undefined;
 }
 
 export interface ManifestFile {
   version: number;
   sources: ManifestSourceSpec[];
   installs: ManifestInstallSpec[];
+  targets: ManifestPushTargetSpec[];
 }
 
 export type ProjectSourceSpec = string | ManifestSourceSpec;
@@ -182,6 +201,7 @@ export interface ProjectSkillObjectSpec {
   scope?: LocalInstallScope | undefined;
   ref?: string | undefined;
   revision?: string | undefined;
+  target?: AdapterId | undefined;
   adapter?: AdapterId | undefined;
   workspaceRoot?: string | undefined;
 }
@@ -192,6 +212,7 @@ export interface ProjectConfigFile {
   version?: number | undefined;
   sources?: ProjectSourceSpec[] | undefined;
   skills?: ProjectSkillSpec[] | undefined;
+  targets?: ManifestPushTargetSpec[] | undefined;
   scope?: LocalInstallScope | undefined;
 }
 
@@ -259,6 +280,20 @@ export interface RuntimeContextGraph {
   configPath: string | null;
   sources: SourceRecord[];
   layers: Record<RuntimeContextLayer, RuntimeContextEntry[]>;
+  warnings: string[];
+}
+
+export interface PushOptions {
+  path?: string | undefined;
+  target?: string | undefined;
+  message?: string | undefined;
+  dryRun?: boolean | undefined;
+}
+
+export interface PushResult {
+  success: boolean;
+  targetLocator: string;
+  revision?: string | undefined;
   warnings: string[];
 }
 

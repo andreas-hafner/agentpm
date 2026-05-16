@@ -53,12 +53,30 @@ function resolveScope(flags: {
   return undefined;
 }
 
+function resolveTarget(value?: string): InstallOptions['target'] {
+  if (!value) {
+    return undefined;
+  }
+  if (value === 'codex' || value === 'claude' || value === 'generic') {
+    return value;
+  }
+  throw new Error('--target must be one of: codex, claude, generic');
+}
+
 function printInspection(
   report: Awaited<ReturnType<AgentPmService['inspect']>>,
 ): void {
   section('Source');
   console.log(`  locator      ${report.locator}`);
   console.log(`  installable  ${report.installable ? 'yes' : 'no'}`);
+  section('Trust');
+  const trustColor = report.trust.trusted ? 32 : 33;
+  console.log(
+    `  ${colorize(report.trust.trusted ? 'trusted' : 'untrusted', trustColor)} (${report.trust.score}/100)`,
+  );
+  for (const reason of report.trust.reasons) {
+    console.log(`    - ${reason}`);
+  }
   section('Detected');
   if (report.groups.length === 0) {
     console.log('  - none');
@@ -260,10 +278,25 @@ source
 program
   .command('inspect')
   .argument('<target>', 'Source id, Git URL, or local path')
-  .action(async (target: string) => {
-    const report = await withService((service) => service.inspect(target));
-    printInspection(report);
-  });
+  .option(
+    '--skill <name>',
+    'Check whether a specific skill selector is present',
+  )
+  .option(
+    '--target <target>',
+    'Check a runtime target: codex, claude, or generic',
+  )
+  .action(
+    async (target: string, flags: { skill?: string; target?: string }) => {
+      const report = await withService((service) =>
+        service.inspect(target, {
+          skill: flags.skill,
+          target: resolveTarget(flags.target),
+        }),
+      );
+      printInspection(report);
+    },
+  );
 
 program
   .command('search')
@@ -283,6 +316,7 @@ program
 
 program
   .command('install')
+  .alias('add')
   .argument('[names...]', 'Skill names or source token for --all/--skill flows')
   .option('--global', 'Install to the global native target')
   .option('--project', 'Install to the current project')
@@ -291,6 +325,10 @@ program
   .option('--all', 'Install all entries from a source')
   .option('--skill <name>', 'Select a specific skill name', collect, [])
   .option('--ref <ref>', 'Git branch, tag, or revision')
+  .option(
+    '--target <target>',
+    'Install only entries for codex, claude, or generic',
+  )
   .action(
     async (
       names: string[],
@@ -301,6 +339,7 @@ program
         workspaceRoot?: string;
         skill?: string[];
         ref?: string;
+        target?: string;
       },
     ) => {
       const installs = await withService((service) =>
@@ -310,10 +349,15 @@ program
           all: flags.all,
           skills: flags.skill,
           ref: flags.ref ?? null,
+          target: resolveTarget(flags.target),
         }),
       );
       for (const install of installs) {
         console.log(`Installed ${install.name} -> ${install.targetPath}`);
+      }
+
+      if (installs.length > 0 && !flags.global) {
+        await withService((service) => service.initManifest());
       }
     },
   );
@@ -353,6 +397,37 @@ program
     );
     console.log(`Removed ${removed.name}`);
   });
+
+program
+  .command('push')
+  .argument('[path]', 'Path to the skill or agent folder', '.')
+  .option('--to <target>', 'Target id or locator')
+  .option('-m, --message <message>', 'Commit message if changes exist')
+  .option('--dry-run', 'Show what would be pushed without doing it')
+  .action(
+    async (
+      pathArg: string,
+      flags: { to?: string; message?: string; dryRun?: boolean },
+    ) => {
+      const result = await withService((service) =>
+        service.push({
+          path: pathArg,
+          target: flags.to,
+          message: flags.message,
+          dryRun: flags.dryRun,
+        }),
+      );
+      if (result.success) {
+        console.log(`Pushed to ${result.targetLocator}`);
+        if (result.revision) {
+          console.log(`Revision: ${result.revision}`);
+        }
+        for (const warning of result.warnings) {
+          console.log(`warning: ${warning}`);
+        }
+      }
+    },
+  );
 
 program.command('list').action(async () => {
   const installs = await withService((service) =>

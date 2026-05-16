@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
 
-import { copyDir, initFixtureGitRepo, makeTempDir } from './helpers';
+import { copyDir, initFixtureGitRepo, makeTempDir, writeFile } from './helpers';
 
 describe('install and manifest flows', () => {
   test('installs a local generic skill into project scope and writes a manifest', async () => {
@@ -226,6 +226,118 @@ describe('install and manifest flows', () => {
       expect(graph.layers.project[0]?.name).toBe('registry-codex');
       expect(graph.layers.project[0]?.targetPath).toBe(
         path.join(projectDir, '.codex', 'skills', 'skill-a'),
+      );
+    } finally {
+      service.close();
+    }
+  });
+
+  test('sync honors detailed target, ref, revision, and workspace root fields', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-mixed-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    const workspaceRoot = path.join(projectDir, 'workspace-target');
+    await writeFile(
+      path.join(sourceDir, '.codex', 'skills', 'shared-skill', 'SKILL.md'),
+      '# Codex Shared Skill\n',
+    );
+    await writeFile(
+      path.join(sourceDir, '.agents', 'skills', 'shared-skill', 'SKILL.md'),
+      '# Generic Shared Skill\n',
+    );
+    initFixtureGitRepo(sourceDir);
+    const revision = (
+      await fs.readFile(
+        path.join(sourceDir, '.git', 'refs', 'heads', 'main'),
+        'utf8',
+      )
+    ).trim();
+
+    await fs.writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      [
+        'sources:',
+        '  - id: mixed',
+        `    locator: ${JSON.stringify(`local:${sourceDir}`)}`,
+        'skills:',
+        '  - name: shared-package',
+        '    source: mixed',
+        '    target: codex',
+        '    scope: workspace',
+        `    workspaceRoot: ${JSON.stringify(workspaceRoot)}`,
+        '    ref: main',
+        `    revision: ${revision}`,
+        '    items:',
+        '      - shared-skill',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const installs = await service.syncManifest();
+      expect(installs).toHaveLength(1);
+      expect(installs[0]?.adapter).toBe('codex');
+      expect(installs[0]?.contentRef).toBe('main');
+      expect(installs[0]?.installedRevision).toBe(revision);
+      expect(installs[0]?.scopeRoot).toBe(workspaceRoot);
+      expect(
+        await fs.readFile(
+          path.join(
+            workspaceRoot,
+            '.codex',
+            'skills',
+            'shared-skill',
+            'SKILL.md',
+          ),
+          'utf8',
+        ),
+      ).toContain('Codex Shared Skill');
+      await expect(
+        fs.lstat(path.join(workspaceRoot, '.agents', 'skills', 'shared-skill')),
+      ).rejects.toThrow();
+
+      const graph = await service.resolveRuntimeContext();
+      expect(graph.layers.project[0]?.name).toBe('shared-skill');
+      expect(graph.layers.project[0]?.adapter).toBe('codex');
+    } finally {
+      service.close();
+    }
+  }, 15000);
+
+  test('sync fails clearly for unsupported target values', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      [
+        'sources:',
+        `  - ${JSON.stringify(`local:${sourceDir}`)}`,
+        'skills:',
+        '  - name: skill-b',
+        '    target: cursor',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await expect(service.syncManifest()).rejects.toThrow(
+        'skills[].target must be one of: codex, claude, generic',
+      );
+      const issues = await service.doctor();
+      expect(issues.some((issue) => issue.code === 'config-invalid')).toBe(
+        true,
       );
     } finally {
       service.close();

@@ -5,6 +5,7 @@ import {
   AgentPmError,
   stableHash,
   toPosixPath,
+  isHttpUrl,
   type AdapterCompatibility,
   type AdapterId,
   type AdapterUpdateResult,
@@ -12,6 +13,7 @@ import {
   type DetectedGroup,
   type DetectedScript,
   type InspectionReport,
+  type InspectionTrust,
   type InstallMapping,
   type InstallRecord,
   type SourceKind,
@@ -317,6 +319,45 @@ export function getAdapter(adapterId: AdapterId): SkillAdapter {
   return adapter;
 }
 
+function calculateTrust(
+  locator: string,
+  sourceKind: SourceKind,
+  scripts: DetectedScript[],
+): InspectionTrust {
+  const reasons: string[] = [];
+  let score = 100;
+
+  if (sourceKind === 'local') {
+    reasons.push('Source is a local folder.');
+  } else if (isHttpUrl(locator)) {
+    try {
+      const url = new URL(locator);
+      if (url.hostname === 'github.com') {
+        reasons.push('Source is a public GitHub repository.');
+      } else {
+        score -= 20;
+        reasons.push(`Source is an external HTTP host: ${url.hostname}`);
+      }
+    } catch {
+      score -= 10;
+      reasons.push('Source locator is a non-standard Git URL.');
+    }
+  }
+
+  if (scripts.length > 0) {
+    score -= 30;
+    reasons.push(
+      `Detected ${scripts.length} custom install script(s) which could be risky.`,
+    );
+  }
+
+  return {
+    trusted: score >= 80,
+    score,
+    reasons,
+  };
+}
+
 export async function inspectRepository(
   repoPath: string,
   locator: string,
@@ -347,6 +388,7 @@ export async function inspectRepository(
     scripts,
     compatibleAdapters: [],
     installable: groups.some((group) => group.entries.length > 0),
+    trust: calculateTrust(locator, sourceKind, scripts),
     warnings,
     layoutSignature: buildLayoutSignature(groups, scripts),
   };

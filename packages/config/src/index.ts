@@ -10,17 +10,23 @@ import {
   writeTextFile,
 } from '@agentpm/fs';
 import {
+  AgentPmError,
   GLOBAL_CONFIG_VERSION,
   MANIFEST_VERSION,
+  classifyLocator,
+  type AdapterId,
   type GlobalConfigFile,
   type InstallScope,
   type LoadedProjectConfig,
   type LocalInstallScope,
   type ManifestFile,
   type ManifestInstallSpec,
+  type ManifestPushTargetSpec,
   type ProjectConfigFile,
   type ProjectSkillSpec,
   type ProjectSourceSpec,
+  type PushTargetKind,
+  type SourceKind,
 } from '@agentpm/shared';
 
 export const PROJECT_CONFIG_FILENAME = 'agentpm.yaml';
@@ -67,6 +73,99 @@ function stringifyYaml(value: unknown): string {
     noRefs: true,
     lineWidth: 100,
   });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function requireRecord(value: unknown, label: string): Record<string, unknown> {
+  if (!isRecord(value)) {
+    throw new AgentPmError(`${label} must be an object.`);
+  }
+  return value;
+}
+
+function optionalString(value: unknown, label: string): string | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new AgentPmError(`${label} must be a non-empty string.`);
+  }
+  return value;
+}
+
+function optionalStringArray(
+  value: unknown,
+  label: string,
+): string[] | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (!Array.isArray(value)) {
+    throw new AgentPmError(`${label} must be an array of strings.`);
+  }
+  const items = value.map((item, index) =>
+    optionalString(item, `${label}[${index}]`),
+  );
+  return items.filter((item): item is string => Boolean(item));
+}
+
+function optionalSourceKind(
+  value: unknown,
+  label: string,
+): SourceKind | undefined {
+  const kind = optionalString(value, label);
+  if (!kind) {
+    return undefined;
+  }
+  if (kind !== 'git' && kind !== 'local' && kind !== 'registry') {
+    throw new AgentPmError(`${label} must be one of: git, local, registry.`);
+  }
+  return kind;
+}
+
+function optionalScope(
+  value: unknown,
+  label: string,
+): LocalInstallScope | undefined {
+  const scope = optionalString(value, label);
+  if (!scope) {
+    return undefined;
+  }
+  if (scope !== 'project' && scope !== 'workspace') {
+    throw new AgentPmError(`${label} must be one of: project, workspace.`);
+  }
+  return scope;
+}
+
+function optionalAdapterId(
+  value: unknown,
+  label: string,
+): AdapterId | undefined {
+  const target = optionalString(value, label);
+  if (!target) {
+    return undefined;
+  }
+  if (target !== 'codex' && target !== 'claude' && target !== 'generic') {
+    throw new AgentPmError(`${label} must be one of: codex, claude, generic.`);
+  }
+  return target;
+}
+
+function optionalPushTargetKind(
+  value: unknown,
+  label: string,
+): PushTargetKind | undefined {
+  const kind = optionalString(value, label);
+  if (!kind) {
+    return undefined;
+  }
+  if (kind !== 'git' && kind !== 'registry') {
+    throw new AgentPmError(`${label} must be one of: git, registry.`);
+  }
+  return kind;
 }
 
 export async function loadGlobalConfig(
@@ -118,9 +217,39 @@ function normalizeSourceSpec(
   source: ProjectSourceSpec,
 ): ManifestFile['sources'][number] {
   if (typeof source === 'string') {
+    if (source.trim().length === 0) {
+      throw new AgentPmError('sources[] string entries must be non-empty.');
+    }
     return { locator: source };
   }
-  return source;
+  const record = requireRecord(source, 'sources[] entries');
+  const locator = optionalString(record.locator, 'sources[].locator');
+  if (!locator) {
+    throw new AgentPmError('sources[] object entries must include locator.');
+  }
+  return {
+    id: optionalString(record.id, 'sources[].id'),
+    locator,
+    kind: optionalSourceKind(record.kind, 'sources[].kind'),
+  };
+}
+
+function normalizePushTargetSpec(
+  target: ManifestPushTargetSpec,
+): ManifestPushTargetSpec {
+  const record = requireRecord(target, 'targets[] entries');
+  const locator = optionalString(record.locator, 'targets[].locator');
+  if (!locator) {
+    throw new AgentPmError('targets[] object entries must include locator.');
+  }
+  return {
+    id: optionalString(record.id, 'targets[].id'),
+    locator,
+    kind:
+      optionalPushTargetKind(record.kind, 'targets[].kind') ??
+      (classifyLocator(locator) === 'registry' ? 'registry' : 'git'),
+    default: record.default === true,
+  };
 }
 
 function normalizeSkillSpec(
@@ -128,6 +257,9 @@ function normalizeSkillSpec(
   defaultScope: LocalInstallScope,
 ): ManifestInstallSpec {
   if (typeof skill === 'string') {
+    if (skill.trim().length === 0) {
+      throw new AgentPmError('skills[] string entries must be non-empty.');
+    }
     return {
       name: skill,
       items: [skill],
@@ -135,22 +267,50 @@ function normalizeSkillSpec(
     };
   }
 
+  const record = requireRecord(skill, 'skills[] entries');
+  const name = optionalString(record.name, 'skills[].name');
+  if (!name) {
+    throw new AgentPmError('skills[] object entries must include name.');
+  }
+  const target = optionalAdapterId(record.target, 'skills[].target');
+  const adapter = optionalAdapterId(record.adapter, 'skills[].adapter');
+  if (target && adapter && target !== adapter) {
+    throw new AgentPmError(
+      'skills[].target and skills[].adapter cannot disagree.',
+    );
+  }
+  const items = optionalStringArray(record.items, 'skills[].items');
+
   return {
-    name: skill.name,
-    source: skill.source,
-    items: skill.items && skill.items.length > 0 ? skill.items : [skill.name],
-    scope: skill.scope ?? defaultScope,
-    ref: skill.ref,
-    revision: skill.revision,
-    adapter: skill.adapter,
-    workspaceRoot: skill.workspaceRoot,
+    name,
+    source: optionalString(record.source, 'skills[].source'),
+    items: items && items.length > 0 ? items : [name],
+    scope: optionalScope(record.scope, 'skills[].scope') ?? defaultScope,
+    ref: optionalString(record.ref, 'skills[].ref'),
+    revision: optionalString(record.revision, 'skills[].revision'),
+    target: target ?? adapter,
+    adapter: adapter ?? target,
+    workspaceRoot: optionalString(
+      record.workspaceRoot,
+      'skills[].workspaceRoot',
+    ),
   };
 }
 
 export function projectConfigToManifest(
   config: ProjectConfigFile,
 ): ManifestFile {
-  const defaultScope = config.scope ?? 'project';
+  const record = requireRecord(config, 'project config');
+  const defaultScope = optionalScope(record.scope, 'scope') ?? 'project';
+  if (record.version !== undefined && typeof record.version !== 'number') {
+    throw new AgentPmError('version must be a number.');
+  }
+  if (record.sources !== undefined && !Array.isArray(record.sources)) {
+    throw new AgentPmError('sources must be an array.');
+  }
+  if (record.skills !== undefined && !Array.isArray(record.skills)) {
+    throw new AgentPmError('skills must be an array.');
+  }
   return {
     version: config.version ?? MANIFEST_VERSION,
     sources: (config.sources ?? []).map((source) =>
@@ -158,6 +318,9 @@ export function projectConfigToManifest(
     ),
     installs: (config.skills ?? []).map((skill) =>
       normalizeSkillSpec(skill, defaultScope),
+    ),
+    targets: (config.targets ?? []).map((target) =>
+      normalizePushTargetSpec(target),
     ),
   };
 }
@@ -168,6 +331,18 @@ function looksLikeManifestFile(value: Record<string, unknown>): boolean {
 
 function normalizeProjectConfig(value: Record<string, unknown>): ManifestFile {
   if (looksLikeManifestFile(value)) {
+    if (value.version !== undefined && typeof value.version !== 'number') {
+      throw new AgentPmError('version must be a number.');
+    }
+    if (value.sources !== undefined && !Array.isArray(value.sources)) {
+      throw new AgentPmError('sources must be an array.');
+    }
+    if (value.targets !== undefined && !Array.isArray(value.targets)) {
+      throw new AgentPmError('targets must be an array.');
+    }
+    if (!Array.isArray(value.installs)) {
+      throw new AgentPmError('installs must be an array.');
+    }
     return {
       version:
         typeof value.version === 'number' ? value.version : MANIFEST_VERSION,
@@ -177,14 +352,57 @@ function normalizeProjectConfig(value: Record<string, unknown>): ManifestFile {
           )
         : [],
       installs: Array.isArray(value.installs)
-        ? (value.installs as ManifestInstallSpec[]).map((install) => ({
-            ...install,
-            items:
-              Array.isArray(install.items) && install.items.length > 0
-                ? install.items
-                : [install.name],
-            scope: install.scope ?? 'project',
-          }))
+        ? (value.installs as ManifestInstallSpec[]).map((install, index) => {
+            const record = requireRecord(install, `installs[${index}]`);
+            const name = optionalString(record.name, `installs[${index}].name`);
+            if (!name) {
+              throw new AgentPmError(`installs[${index}] must include name.`);
+            }
+            const target = optionalAdapterId(
+              record.target,
+              `installs[${index}].target`,
+            );
+            const adapter = optionalAdapterId(
+              record.adapter,
+              `installs[${index}].adapter`,
+            );
+            if (target && adapter && target !== adapter) {
+              throw new AgentPmError(
+                `installs[${index}].target and installs[${index}].adapter cannot disagree.`,
+              );
+            }
+            const items = optionalStringArray(
+              record.items,
+              `installs[${index}].items`,
+            );
+            return {
+              name,
+              source: optionalString(
+                record.source,
+                `installs[${index}].source`,
+              ),
+              items: items && items.length > 0 ? items : [name],
+              scope:
+                optionalScope(record.scope, `installs[${index}].scope`) ??
+                'project',
+              ref: optionalString(record.ref, `installs[${index}].ref`),
+              revision: optionalString(
+                record.revision,
+                `installs[${index}].revision`,
+              ),
+              target: target ?? adapter,
+              adapter: adapter ?? target,
+              workspaceRoot: optionalString(
+                record.workspaceRoot,
+                `installs[${index}].workspaceRoot`,
+              ),
+            };
+          })
+        : [],
+      targets: Array.isArray(value.targets)
+        ? (value.targets as ManifestPushTargetSpec[]).map((target) =>
+            normalizePushTargetSpec(target),
+          )
         : [],
     };
   }
@@ -200,6 +418,7 @@ function mergeManifests(
     version: canonical.version,
     sources: [...canonical.sources, ...local.sources],
     installs: [...canonical.installs, ...local.installs],
+    targets: [...(canonical.targets ?? []), ...(local.targets ?? [])],
   };
 }
 
@@ -268,6 +487,7 @@ export function createEmptyManifest(): ManifestFile {
     version: MANIFEST_VERSION,
     sources: [],
     installs: [],
+    targets: [],
   };
 }
 

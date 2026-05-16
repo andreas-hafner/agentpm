@@ -4,7 +4,7 @@ entries:
     description: Codex mastering workflow helpers
     repo: ../repos/codex-sample
     path: .codex/skills/audio-mastering
-    adapterHint: codex
+    target: codex
     tags:
       - audio
       - mastering
@@ -12,8 +12,7 @@ entries:
     description: Claude review agent
     repo: ../repos/claude-sample
     path: .claude/agents/reviewer
-    adapterHint: claude
+    target: claude
     tags:
       - review
       - claude
-

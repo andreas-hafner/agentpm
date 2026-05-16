@@ -32,6 +32,8 @@ Summarizes the runtime package split and the main command execution flow.
 - Native layout preservation is the default install strategy.
 - `agentpm.yaml` is the committed project config. `.agentpmrc` is an optional local override or compatibility fallback.
 - Project config sources support shorthands such as `skills.sh`, `skillshub.wtf`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`.
+- `agentpm.yaml` skills can be string shorthand or detailed objects with `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`.
+- `target` is the public project-config selector for native layouts (`codex`, `claude`, or `generic`); `adapter` remains a compatibility alias.
 - `AgentPmService.resolveRuntimeContext()` builds global/project/temporary skill layers without creating project runtime folders.
 - Project install/sync writes generated target paths to `.git/info/exclude` when a scope root is a Git repository.
 - Adapter detection scans supported roots for marker files, so nested collections inside `skills/` can still be indexed and installed.
@@ -40,3 +42,4 @@ Summarizes the runtime package split and the main command execution flow.
 - Registry sources include the skills.sh API (auth required) and the SkillsHub API (skillshub.wtf, no auth, 1000-entry cap).
 - Private HTTP registry indexes can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 - On first start (no sources in DB, TTY available), the CLI prompts to add SkillsHub as the default registry.
+- `agentpm doctor` validates project config resolution, configured sources/skills, broken installs, cache state, local source paths, permissions, and tracked generated targets.

@@ -36,22 +36,28 @@ AgentPM is a Git-native CLI for discovering and managing AI skills and agent ass
 
 ```yaml
 sources:
-  - skills.sh
-  - git@github.com:me/private-skills.git
-  - local:~/skills
+  - id: internal
+    locator: git@github.com:me/private-skills.git
   - id: company-registry
     locator: registry:https://registry.example.com/agentpm/index.yaml
+  - local:~/skills
 scope: project
 skills:
   - audio-mastering
-  - nextjs-architecture
-  - name: internal-review
+
+  - name: review-pack
     source: company-registry
+    target: generic
+    scope: workspace
+    workspaceRoot: ..
+    ref: main
     items:
-      - internal-review
+      - review/checklists
 ```
 
-`agentpm sync` uses that order deterministically and writes generated target paths to `.git/info/exclude` when the project is a Git repository. This keeps committed project state focused on `agentpm.yaml`.
+String skills are shorthand for resolving a skill from configured sources in order. Object skills are the detailed direct contract: `name`, `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`. `target` is the public runtime-layout field in project config. It selects a matching native adapter (`codex`, `claude`, or `generic`) and does not transform layouts.
+
+`agentpm sync` uses source order deterministically and writes generated target paths to `.git/info/exclude` when the scope root is a Git repository. This keeps committed project state focused on `agentpm.yaml`.
 
 `agentpm resolve` returns the active runtime context layers:
 
@@ -62,3 +68,9 @@ skills:
 The resolver may index configured sources into AgentPM state, but it does not create native project skill folders or symlinks.
 
 Supported source shorthands include `skills.sh`, `skillshub.wtf`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+
+## Diagnostics
+
+`agentpm inspect` reports detected layouts, adapter compatibility, install-script risks, and optional `--skill` / `--target` satisfaction warnings.
+
+`agentpm doctor` validates project config, configured sources, configured skills, installed target links, cache entries, local source paths, write access, and generated targets that were accidentally tracked by Git.

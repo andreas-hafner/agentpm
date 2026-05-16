@@ -1,34 +1,215 @@
-# AgentPM MVP Implementation Plan
+# AgentPM Next Steps: Detailed Project Skills MVP
 
 ## Summary
 
-- Build a pnpm workspace + Turborepo monorepo with `apps/cli` and `packages/*`, using TypeScript and Node 24 LTS as the supported runtime.
-- Use `Commander.js` for the CLI and keep `Ink` limited to interactive selection and confirmation flows.
-- Route command behavior through `apps/cli -> packages/core -> {config, db, registry, git, adapters, fs, ui}`.
-- Create the repo-level docs, summaries, examples, tests, and CI alongside the code.
+AgentPM's next publishable MVP should focus on detailed project-level
+`skills` entries in the committed `agentpm.yaml` file.
 
-## Key Changes
+The goal is not to build a full npm-style dependency solver yet. The goal is to
+make a project declare the direct skills it needs, where those skills come from,
+which coding-agent runtime should receive them, and how they should be pinned or
+resolved during `agentpm sync`.
 
-- `packages/shared`: domain types, identifiers, project config and manifest types, diff/diagnostic models, and shared helpers.
-- `packages/config`: global config, committed `agentpm.yaml` loading/saving, optional `.agentpmrc` local override loading, plus AgentPM home path resolution.
-- `packages/db`: SQLite schema, migrations, and repositories for sources, catalog entries, cache state, and installs.
-- `packages/git`: Git URL handling, shallow sparse releases, remote HEAD resolution, and local Git revision helpers.
-- `packages/registry`: static YAML/JSON registry index parsing and catalog entry normalization.
-- `packages/adapters`: Generic, Codex, and Claude layout detection, compatibility scoring, install mapping, update validation, and removal validation.
-- `packages/fs`: directory walking, signatures, tree diffing, and safe symlink or junction management.
-- `packages/core`: orchestration for source, inspect, search, install, update, diff, remove, init, sync, list, and doctor.
-- `packages/ui`: lightweight Ink prompts for interactive choice and risky confirmations.
-- `apps/cli`: the `agentpm` binary and command wiring.
+`skills` remains the canonical project contract:
+
+- string entries stay available for the simple case
+- object entries provide source binding, version pinning, private-source usage,
+  adapter targets, and reproducible sync
+- `.agentpmrc` remains a local-only override or compatibility fallback
+- lockfiles, transitive dependencies, semver ranges, and integrity metadata are
+  deferred until after this direct workflow is reliable
+
+## Project Config Contract
+
+Keep `agentpm.yaml` centered on `sources` and `skills`:
+
+```yaml
+sources:
+  - id: internal
+    locator: git@github.com:company/private-skills.git
+  - id: public
+    locator: github:agentpm/public-skills
+  - id: local
+    locator: local:../skills
+
+skills:
+  - nextjs-architecture
+
+  - name: audio-mastering
+    source: internal
+    ref: v1.2.0
+    target: codex
+    scope: project
+    items:
+      - audio-mastering
+```
+
+String skills are shorthand:
+
+```yaml
+skills:
+  - audio-mastering
+```
+
+This means: resolve `audio-mastering` from configured sources in deterministic
+order using the default target and scope.
+
+Object skills are the detailed MVP contract:
+
+- `name`: stable project skill name
+- `source`: optional source id, locator, or alias
+- `ref`: branch, tag, or commit-ish pin
+- `revision`: exact resolved commit when known
+- `target`: `codex`, `claude`, `generic`, or a future adapter id
+- `scope`: `project` or `workspace`
+- `items`: optional native skill paths or names when package name differs from
+  folder name
+- `workspaceRoot`: optional explicit workspace target root
+
+This keeps the first MVP direct-only:
+
+- no transitive skill dependencies
+- no semver solver
+- no lockfile requirement
+- no conflict resolver beyond clear duplicate, missing-source, missing-skill,
+  and unsupported-target diagnostics
+- `agentpm sync` installs exactly the direct skills declared in `agentpm.yaml`
+
+## Source And Registry Support
+
+The MVP should make private-first project setup work without committing skill
+code or secrets.
+
+Supported source classes:
+
+- public GitHub repositories
+- private GitHub, GitLab, and SSH Git repositories
+- local folders
+- static YAML or JSON registries
+- enterprise/private registry URLs
+- existing shorthands such as `github:`, `local:`, and `registry:`
+
+Private-source behavior:
+
+- private Git uses the user's existing SSH key or Git credential helper
+- private HTTP registries use environment tokens only
+- credentials are never written to `agentpm.yaml`, `.agentpmrc`, generated
+  metadata, cache records, logs, or future lockfiles
+- generated skill folders, cache contents, symlinks, and runtime artifacts stay
+  local and uncommitted
+- `agentpm sync`, `agentpm inspect`, and `agentpm doctor` report inaccessible
+  private sources with actionable messages
+
+Registry entries should remain compatible with today's simple format while
+supporting enough metadata for direct detailed skills:
+
+- `name`
+- `repo`
+- `ref`
+- `path`
+- `adapterHint`
+- `tags`
+
+Future registry metadata can add target matrices, dependency metadata,
+integrity, and compatibility constraints after the direct-skill MVP is stable.
+
+## CLI And Runtime Behavior
+
+`agentpm sync` should:
+
+- read `agentpm.yaml`
+- resolve configured sources in file order
+- resolve each string or object `skills` entry
+- honor `source`, `ref`, `revision`, `target`, `scope`, `items`, and
+  `workspaceRoot`
+- install or refresh local generated targets
+- avoid committing generated targets by updating local Git exclude state when
+  possible
+- fail clearly for missing sources, missing skills, inaccessible private repos,
+  unsupported targets, and malformed project config
+
+`agentpm resolve` should:
+
+- show active global, project, and temporary skill layers
+- resolve project skills from `agentpm.yaml`
+- avoid mutating the repository
+- provide stable JSON output for automation
+
+`agentpm inspect` should:
+
+- report detected layouts
+- report adapter compatibility
+- report install-script risks
+- detect plain `skills/`, `.agents/skills`, `.codex/skills`,
+  `.codex.cloud/skills`, `.claude/agents`, and `subagents`
+- make it clear whether a source can satisfy a detailed skill entry
+
+`agentpm doctor` should check:
+
+- malformed string or object skill entries
+- unreachable sources
+- unsupported targets
+- missing installed targets
+- stale or broken local generated targets
+- generated skill artifacts that accidentally became Git-tracked
+- registry entries that point to missing paths or unsupported adapters
+
+The CLI should stay thin. Resolution, install, validation, and diagnostic logic
+should live in `packages/core` and the specialized packages.
+
+## Implementation Priorities
+
+1. Tighten detailed `skills` parsing and validation.
+2. Make target handling explicit for Codex, Claude, generic, and future adapters.
+3. Make `sync` deterministic for direct project skills.
+4. Improve diagnostics for private Git, private registries, and malformed
+   project config.
+5. Extend inspect and doctor so users can trust a source before installing from
+   it.
+6. Extend the smoke test to cover a detailed `skills` object with a pinned ref
+   and a registry-backed source.
+7. Keep `agentpm.lock.yaml`, transitive dependencies, semver ranges, and
+   integrity metadata as the next phase after this MVP.
 
 ## Test Plan
 
-- Unit test type-safe helpers, manifest parsing, registry parsing, adapter detection, target mapping, DB repositories, and file diff or link helpers.
-- Integration test local Git repos and local folders for source add, inspect, selective install, `--all`, update detection, diff, remove, init, sync, and doctor.
-- Add CLI smoke tests for help output and representative command flows.
+Add or update tests for:
+
+- parsing string and object `skills` entries
+- `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`
+  handling
+- sync from local folders, public Git, private-style SSH fixtures, and
+  registry-backed sources
+- Codex, Claude, generic `.agents`, plain `skills/`, `.codex.cloud/skills`, and
+  `subagents` layouts
+- clear failures for missing source, missing skill, unsupported target, bad
+  registry entry, inaccessible private source, and malformed config
+- `resolve --json` stability for direct project skills
+- `doctor` detection of broken generated targets and accidentally tracked
+  generated skill folders
+- smoke coverage for one detailed `skills` object with a pinned ref and one
+  registry source
+
+Release validation for this phase should include:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm smoke
+```
 
 ## Assumptions
 
-- Public and private registry support starts with static YAML/JSON indexes, plus supported API-backed public registry adapters.
-- `agentpm.yaml` acts as the committed project setup config in v1. `.agentpmrc` is a local-only override or compatibility fallback.
-- `sync` reconciles project and workspace installs only; global installs remain machine-local by default.
-- Install scripts are detected and surfaced as warnings but are never auto-run in MVP.
+- `skills` stays canonical for the first publishable MVP.
+- Detailed `skills` objects provide enough npm-like reproducibility without a
+  separate `dependencies` field.
+- `agentpm.yaml` may reveal skill names or private source aliases, but it must
+  never contain credentials.
+- Only `agentpm.yaml` is required for this MVP workflow.
+- `.agentpmrc` remains local-only and should not be required for team
+  reproducibility.
+- Lockfiles, transitive dependency resolution, semver ranges, package integrity,
+  MCP config installation, hosted sync, cloud execution, GUI work, and
+  marketplace monetization are out of scope for this phase.

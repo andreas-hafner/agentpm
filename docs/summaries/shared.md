@@ -20,3 +20,5 @@ Shared types, pure utility functions, and cross-package constants. No runtime de
 
 - `classifyLocator` determines source kind from a locator string. `isSkillsShLocator` recognizes skills.sh URLs, `isSkillsHubLocator` recognizes skillshub.wtf URLs, and `registry:<url-or-path>` is classified as `'registry'`.
 - `SourceKind` is `'git' | 'local' | 'registry'`. API-backed registries (skills.sh, skillshub.wtf) are loaded via dynamic paginators in `@agentpm/registry`.
+- Project and manifest skill specs include `target` as the preferred runtime-layout selector; `adapter` remains a compatibility alias.
+- Registry entries include preferred `target` metadata plus legacy `adapterHint`.

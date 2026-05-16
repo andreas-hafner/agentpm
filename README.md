@@ -1,20 +1,19 @@
 # AgentPM
 
-AgentPM is a Git-native CLI for discovering, installing, updating, and removing AI skills and agent assets from static registries, Git repositories, and local folders.
+AgentPM is a project-aware, Git-native CLI for resolving and installing AI skills from public registries, private Git repositories, enterprise registries, and local folders.
 
-## MVP features
+The publishable MVP centers on a committed `agentpm.yaml`: projects declare the direct skills they need, where those skills come from, which runtime target should receive them, and how they are pinned. Generated skill folders, caches, symlinks, and credentials stay local.
 
-- Add, list, and remove sources
-- Inspect repository layouts and compatible adapters
-- Search configured remote entries and installed items
-- Install native skill layouts globally, per project, or into a workspace root
-- Selectively install individual items or whole collections
-- Track installed revisions and compare updates
-- Remove installs and optionally purge cache data
-- Initialize and sync committed `agentpm.yaml` project manifests
-- Resolve active global, project, and temporary runtime skill layers without writing project runtime folders
-- Use Git, local folder, public registry, and private registry sources in deterministic project order
-- Run diagnostics with `agentpm doctor`
+## MVP Features
+
+- `agentpm.yaml` project contracts with string and detailed object `skills` entries
+- Deterministic `agentpm sync` from configured sources in file order
+- Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
+- Runtime targets for `codex`, `claude`, and `generic` native layouts
+- Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
+- Runtime context resolution across global, project, and temporary layers without writing project runtime folders
+- Diagnostics for malformed config, unavailable sources, missing generated targets, broken links, and tracked generated artifacts
+- Update previews for Git-backed installs, layout migration warnings, and local source drift checks
 
 ## Getting started
 
@@ -42,6 +41,61 @@ agentpm --help
 
 If pnpm reports that no global bin directory is configured, run `pnpm setup`, restart your terminal, then run the global install command again.
 
+## Project Config
+
+Commit `agentpm.yaml` to the repository:
+
+```yaml
+sources:
+  - id: internal
+    locator: git@github.com:company/private-skills.git
+  - id: public
+    locator: github:agentpm/public-skills
+  - id: registry
+    locator: registry:https://registry.example.com/agentpm/index.yaml
+
+skills:
+  - nextjs-architecture
+
+  - name: audio-mastering
+    source: internal
+    ref: v1.2.0
+    target: codex
+    scope: project
+    items:
+      - audio-mastering
+
+  - name: shared-review
+    source: registry
+    target: generic
+    scope: workspace
+    workspaceRoot: ..
+    items:
+      - review/checklists
+```
+
+String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
+
+Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
+
+## Installation
+
+You can install the CLI globally on your machine to use `agentpm` from anywhere.
+
+From the root of this repository, use one of the following commands:
+
+**For active development (Live Symlink)**:
+```bash
+pnpm run link:global
+```
+*This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`.*
+
+**For static installation**:
+```bash
+pnpm run install:global
+```
+*This installs a static copy of the CLI globally. You will need to run this command again to apply future updates.*
+
 ## Smoke test
 
 Run the local smoke test before publishing or handing the CLI to another machine:
@@ -50,15 +104,15 @@ Run the local smoke test before publishing or handing the CLI to another machine
 pnpm smoke
 ```
 
-The smoke test builds the workspace, runs the packaged `agentpm` bin with an isolated `AGENTPM_HOME`, inspects the Codex fixture repository, syncs a temporary project from `agentpm.yaml`, verifies runtime resolution, checks local Git exclude handling, and runs `agentpm doctor`.
+The smoke test builds the workspace, runs the packaged `agentpm` bin with an isolated `AGENTPM_HOME`, inspects a Codex fixture repository, syncs a temporary project from a detailed registry-backed `agentpm.yaml`, verifies runtime resolution, checks local Git exclude handling, and runs `agentpm doctor`.
 
 ## Example commands
 
 ```bash
 agentpm source add ./examples/repos/codex-sample
-agentpm inspect ./examples/repos/codex-sample
+agentpm inspect ./examples/repos/codex-sample --skill audio-mastering --target codex
 agentpm search audio
-agentpm install audio-mastering --project
+agentpm install audio-mastering --project --target codex
 agentpm resolve --temp release-helper
 agentpm sync
 agentpm update

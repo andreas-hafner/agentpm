@@ -25,12 +25,13 @@ function coerceEntry(entry: Record<string, unknown>): RegistryIndexEntry {
   const tags = Array.isArray(entry.tags)
     ? entry.tags.filter((tag): tag is string => typeof tag === 'string')
     : [];
-  const adapterHint =
-    entry.adapterHint === 'generic' ||
-    entry.adapterHint === 'codex' ||
-    entry.adapterHint === 'claude'
-      ? entry.adapterHint
-      : undefined;
+  const adapterHint = coerceAdapterId(entry.adapterHint, 'adapterHint');
+  const target = coerceAdapterId(entry.target, 'target');
+  if (adapterHint && target && adapterHint !== target) {
+    throw new AgentPmError(
+      `Registry entry "${String(entry.name)}" has conflicting adapterHint and target values.`,
+    );
+  }
 
   if (typeof entry.name !== 'string' || typeof entry.repo !== 'string') {
     throw new AgentPmError(
@@ -45,9 +46,25 @@ function coerceEntry(entry: Record<string, unknown>): RegistryIndexEntry {
     repo: entry.repo,
     ref: typeof entry.ref === 'string' ? entry.ref : undefined,
     path: typeof entry.path === 'string' ? entry.path : undefined,
-    adapterHint,
+    adapterHint: adapterHint ?? target,
+    target: target ?? adapterHint,
     tags,
   };
+}
+
+function coerceAdapterId(
+  value: unknown,
+  field: string,
+): RegistryIndexEntry['adapterHint'] {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (value === 'generic' || value === 'codex' || value === 'claude') {
+    return value;
+  }
+  throw new AgentPmError(
+    `Registry entry ${field} must be one of: codex, claude, generic.`,
+  );
 }
 
 function parseRegistryContent(

@@ -1,9 +1,10 @@
+import { execFile } from 'node:child_process';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { promisify } from 'node:util';
 
 import {
-  findDetectedEntry,
   getAdapter,
   inspectRepository,
   listInstallableEntries,
@@ -47,6 +48,7 @@ import {
   makeId,
   nowIso,
   slugify,
+  stableHash,
   toPosixPath,
   type CacheRepoRecord,
   type CatalogEntryRecord,
@@ -54,11 +56,16 @@ import {
   type DoctorIssue,
   type InstallRecord,
   type InstallScope,
+  type AdapterId,
   type InspectionReport,
+  type LoadedProjectConfig,
   type ManifestFile,
+  type ManifestPushTargetSpec,
   type ManifestSourceSpec,
   type PromptApi,
   type ProjectConfigFile,
+  type PushOptions,
+  type PushResult,
   type RuntimeContextEntry,
   type RuntimeContextGraph,
   type SearchResult,
@@ -80,6 +87,7 @@ export interface InstallOptions {
   skills?: string[] | undefined;
   ref?: string | null | undefined;
   revision?: string | null | undefined;
+  target?: AdapterId | undefined;
   yes?: boolean | undefined;
 }
 
@@ -123,6 +131,8 @@ interface ConfiguredSourceBinding {
   source: SourceRecord;
 }
 
+const execFileAsync = promisify(execFile);
+
 function normalizeCatalogSelector(selector: string): string {
   return selector.trim().replace(/\\/g, '/');
 }
@@ -148,6 +158,13 @@ function matchesCatalogEntrySelector(
     entry.path === normalizedSelector ||
     entry.path.endsWith(`/${normalizedSelector}`)
   );
+}
+
+function matchesCatalogEntryTarget(
+  entry: CatalogEntryRecord,
+  target?: AdapterId,
+): boolean {
+  return !target || entry.adapterHint === null || entry.adapterHint === target;
 }
 
 export class AgentPmService {
@@ -227,7 +244,13 @@ export class AgentPmService {
     this.db.deleteSource(source.id);
   }
 
-  async inspect(target: string): Promise<InspectionReport> {
+  async inspect(
+    target: string,
+    options: {
+      skill?: string | undefined;
+      target?: AdapterId | undefined;
+    } = {},
+  ): Promise<InspectionReport> {
     await this.initialize();
     const source = this.findSourceByToken(target);
     if (source && source.kind !== 'registry') {
@@ -236,7 +259,7 @@ export class AgentPmService {
         source.kind,
       );
       try {
-        return prepared.report;
+        return this.annotateInspectionForRequest(prepared.report, options);
       } finally {
         await prepared.cleanup?.();
       }
@@ -251,7 +274,7 @@ export class AgentPmService {
 
     const prepared = await this.prepareInspectionTarget(target, kind);
     try {
-      return prepared.report;
+      return this.annotateInspectionForRequest(prepared.report, options);
     } finally {
       await prepared.cleanup?.();
     }
@@ -310,15 +333,24 @@ export class AgentPmService {
         if (selection.entry.path) {
           selector.relativePath = selection.entry.path;
         }
+        const detectedEntries = listInstallableEntries(prepared.report).filter(
+          (entry) => !options.target || entry.adapter === options.target,
+        );
         const detectedEntry =
-          findDetectedEntry(prepared.report, selector) ??
-          listInstallableEntries(prepared.report).find(
-            (entry) => entry.name === selection.entry.name,
-          );
+          detectedEntries.find((entry) => {
+            if (selector.relativePath) {
+              return entry.relativePath === selector.relativePath;
+            }
+            return selector.name ? entry.name === selector.name : false;
+          }) ??
+          detectedEntries.find((entry) => entry.name === selection.entry.name);
 
         if (!detectedEntry) {
+          const targetSummary = options.target
+            ? ` for target "${options.target}"`
+            : '';
           throw new AgentPmError(
-            `Could not find installable entry "${selection.entry.name}" in ${prepared.contentLocator}.`,
+            `Could not find installable entry "${selection.entry.name}"${targetSummary} in ${prepared.contentLocator}.`,
           );
         }
 
@@ -589,7 +621,12 @@ export class AgentPmService {
     ];
     const projectConfig: ProjectConfigFile = {
       version: MANIFEST_VERSION,
-      sources: uniqueSources.map((source) => source.locator),
+      sources: uniqueSources.map((source) => ({
+        id: source.id,
+        locator: source.locator,
+        kind: source.kind,
+      })),
+      targets: [],
       scope: 'project',
       skills: installs.map((install) => {
         const base = {
@@ -603,7 +640,7 @@ export class AgentPmService {
             install.scope === 'global' ? ('project' as const) : install.scope,
           ref: install.contentRef ?? undefined,
           revision: install.installedRevision ?? undefined,
-          adapter: install.adapter,
+          target: install.adapter,
           workspaceRoot:
             install.scope === 'workspace' ? install.scopeRoot : undefined,
         };
@@ -639,10 +676,11 @@ export class AgentPmService {
         scope: install.scope === 'global' ? 'project' : install.scope,
         ref: install.contentRef ?? undefined,
         revision: install.installedRevision ?? undefined,
-        adapter: install.adapter,
+        target: install.adapter,
         workspaceRoot:
           install.scope === 'workspace' ? install.scopeRoot : undefined,
       })),
+      targets: [],
     };
 
     const manifestPath = await saveProjectConfig(this.cwd, projectConfig);
@@ -672,6 +710,7 @@ export class AgentPmService {
           : this.resolveSourceForConfiguredSkill(
               installSpec.items,
               orderedSources,
+              installSpec.target ?? installSpec.adapter,
             );
       const created = await this.install([sourceToken], {
         scope: installSpec.scope,
@@ -679,12 +718,128 @@ export class AgentPmService {
         skills: installSpec.items,
         ref: installSpec.ref ?? null,
         revision: installSpec.revision ?? null,
+        target: installSpec.target ?? installSpec.adapter,
         yes: true,
       });
       installs.push(...created);
     }
 
     return installs;
+  }
+
+  async push(options: PushOptions = {}): Promise<PushResult> {
+    await this.initialize();
+    const loadedConfig = await loadProjectConfig(this.cwd);
+    const target = await this.resolvePushTarget(options.target, loadedConfig);
+    const skillPath = path.resolve(this.cwd, options.path ?? '.');
+
+    if (target.kind === 'git') {
+      return this.pushToGit(
+        skillPath,
+        target.locator,
+        options.message,
+        options.dryRun,
+      );
+    }
+
+    if (target.kind === 'registry') {
+      throw new AgentPmError('Registry push is not implemented yet.');
+    }
+
+    throw new AgentPmError(`Unsupported push target kind: ${target.kind}`);
+  }
+
+  private async resolvePushTarget(
+    token: string | undefined,
+    config: LoadedProjectConfig | null,
+  ): Promise<ManifestPushTargetSpec> {
+    const targets = config?.manifest.targets ?? [];
+
+    if (token) {
+      const match = targets.find((t) => t.id === token || t.locator === token);
+      if (match) {
+        return match;
+      }
+      return {
+        locator: token,
+        kind: classifyLocator(token) === 'registry' ? 'registry' : 'git',
+      };
+    }
+
+    const defaultTarget = targets.find((t) => t.default);
+    if (defaultTarget) {
+      return defaultTarget;
+    }
+
+    if (targets.length === 1) {
+      return targets[0]!;
+    }
+
+    throw new AgentPmError(
+      'No push target specified and no default target configured in agentpm.yaml.',
+    );
+  }
+
+  private async pushToGit(
+    skillPath: string,
+    locator: string,
+    message?: string,
+    dryRun?: boolean,
+  ): Promise<PushResult> {
+    const warnings: string[] = [];
+    if (dryRun) {
+      return {
+        success: true,
+        targetLocator: locator,
+        warnings: ['Dry run: would push to ' + locator],
+      };
+    }
+
+    try {
+      const remoteName = `target-${stableHash(locator).slice(0, 8)}`;
+      await execFileAsync('git', ['remote', 'add', remoteName, locator], {
+        cwd: skillPath,
+      }).catch(async () => {
+        await execFileAsync('git', ['remote', 'set-url', remoteName, locator], {
+          cwd: skillPath,
+        });
+      });
+
+      if (message) {
+        await execFileAsync('git', ['add', '.'], { cwd: skillPath });
+        await execFileAsync('git', ['commit', '-m', message], {
+          cwd: skillPath,
+        }).catch(() => {
+          warnings.push('No changes to commit or commit failed.');
+        });
+      }
+
+      const branchResult = await execFileAsync(
+        'git',
+        ['rev-parse', '--abbrev-ref', 'HEAD'],
+        { cwd: skillPath },
+      );
+      const branch = branchResult.stdout.trim();
+
+      await execFileAsync('git', ['push', remoteName, branch], {
+        cwd: skillPath,
+      });
+
+      const revisionResult = await execFileAsync('git', ['rev-parse', 'HEAD'], {
+        cwd: skillPath,
+      });
+
+      return {
+        success: true,
+        targetLocator: locator,
+        revision: revisionResult.stdout.trim(),
+        warnings,
+      };
+    } catch (error) {
+      throw new AgentPmError(
+        `Git push failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   async resolveRuntimeContext(
@@ -712,14 +867,18 @@ export class AgentPmService {
               : this.resolveSourceForConfiguredSkill(
                   installSpec.items,
                   sourceBindings,
+                  installSpec.target ?? installSpec.adapter,
                 );
           const source = this.findSourceByToken(sourceToken);
           const itemSelector = installSpec.items[0] ?? installSpec.name;
+          const target = installSpec.target ?? installSpec.adapter;
           const entry = source
             ? this.db
                 .listCatalogEntriesBySource(source.id)
-                .find((candidate) =>
-                  matchesCatalogEntrySelector(candidate, itemSelector),
+                .find(
+                  (candidate) =>
+                    matchesCatalogEntrySelector(candidate, itemSelector) &&
+                    matchesCatalogEntryTarget(candidate, target),
                 )
             : null;
           const installed =
@@ -741,7 +900,7 @@ export class AgentPmService {
             name: entry?.name ?? installSpec.name,
             sourceId: source?.id ?? null,
             sourceLocator: source?.locator ?? null,
-            adapter: entry?.adapterHint ?? installed?.adapter ?? null,
+            adapter: target ?? entry?.adapterHint ?? installed?.adapter ?? null,
             sourceRelativePath:
               entry?.path ?? installed?.sourceRelativePath ?? null,
             targetPath: installed?.targetPath ?? null,
@@ -781,6 +940,123 @@ export class AgentPmService {
   async doctor(): Promise<DoctorIssue[]> {
     await this.initialize();
     const issues: DoctorIssue[] = [];
+    const loadedConfig = await loadProjectConfig(this.cwd).catch(
+      (error: unknown) => {
+        issues.push({
+          severity: 'error',
+          code: 'config-invalid',
+          path: this.paths.manifestPath,
+          message:
+            error instanceof Error
+              ? `Project config is invalid: ${error.message}`
+              : 'Project config is invalid.',
+          remedy:
+            'Fix agentpm.yaml so sources is an array and skills entries are strings or valid objects.',
+        });
+        return null;
+      },
+    );
+
+    if (loadedConfig) {
+      const configuredSources = loadedConfig.manifest.sources.map((source) => ({
+        id: source.id,
+        rawLocator: source.locator,
+        normalizedLocator: this.normalizeLocator(
+          source.locator,
+          source.kind ?? classifyLocator(source.locator),
+        ),
+      }));
+      for (const installSpec of loadedConfig.manifest.installs) {
+        if (!installSpec.source) {
+          continue;
+        }
+        const matchesConfiguredSource = configuredSources.some(
+          (source) =>
+            source.id === installSpec.source ||
+            source.rawLocator === installSpec.source ||
+            source.normalizedLocator === installSpec.source,
+        );
+        if (!matchesConfiguredSource) {
+          issues.push({
+            severity: 'error',
+            code: 'config-source-missing',
+            path: loadedConfig.configPath,
+            message: `Configured skill "${installSpec.name}" references unknown source "${installSpec.source}".`,
+            remedy:
+              'Add a matching source id or locator under sources, or update the skill source field.',
+          });
+        }
+      }
+
+      const configuredBindings = await this.ensureConfiguredSources(
+        loadedConfig.manifest.sources,
+      ).catch((error: unknown) => {
+        issues.push({
+          severity: 'error',
+          code: 'config-source-unavailable',
+          path: loadedConfig.configPath,
+          message:
+            error instanceof Error
+              ? `Configured source is unavailable: ${error.message}`
+              : 'Configured source is unavailable.',
+          remedy:
+            'Verify private Git credentials, registry tokens, or local source paths.',
+        });
+        return [] as ConfiguredSourceBinding[];
+      });
+
+      if (configuredBindings.length > 0) {
+        for (const installSpec of loadedConfig.manifest.installs) {
+          const target = installSpec.target ?? installSpec.adapter;
+          try {
+            const sourceToken =
+              installSpec.source !== undefined
+                ? this.resolveConfiguredSourceToken(
+                    installSpec.source,
+                    configuredBindings,
+                  )
+                : this.resolveSourceForConfiguredSkill(
+                    installSpec.items,
+                    configuredBindings,
+                    target,
+                  );
+            const source = this.findSourceByToken(sourceToken);
+            const entries = source
+              ? this.db.listCatalogEntriesBySource(source.id)
+              : [];
+            const hasMatchingEntry = installSpec.items.some((item) =>
+              entries.some(
+                (entry) =>
+                  matchesCatalogEntrySelector(entry, item) &&
+                  matchesCatalogEntryTarget(entry, target),
+              ),
+            );
+            if (!hasMatchingEntry) {
+              issues.push({
+                severity: 'error',
+                code: 'config-skill-missing',
+                path: loadedConfig.configPath,
+                message: `Configured skill "${installSpec.name}" is not available from the resolved source${target ? ` for target "${target}"` : ''}.`,
+                remedy:
+                  'Check the skill items, source id, registry path, or target value.',
+              });
+            }
+          } catch (error) {
+            issues.push({
+              severity: 'error',
+              code: 'config-skill-unresolved',
+              path: loadedConfig.configPath,
+              message:
+                error instanceof Error
+                  ? error.message
+                  : `Configured skill "${installSpec.name}" could not be resolved.`,
+              remedy:
+                'Check the skill source, item selectors, source order, and target.',
+            });
+          }
+        }
+      }
+    }
 
     for (const source of this.db.listSources()) {
       if (source.kind === 'local' && !(await pathExists(source.locator))) {
@@ -886,6 +1162,24 @@ export class AgentPmService {
           remedy: 'Check permissions before updating or removing this install.',
         });
       }
+
+      if (install.scope !== 'global') {
+        const tracked = await this.isGitTrackedPath(
+          install.scopeRoot,
+          install.targetPath,
+        );
+        if (tracked) {
+          issues.push({
+            severity: 'warning',
+            code: 'generated-target-tracked',
+            installId: install.id,
+            path: install.targetPath,
+            message: `Generated AgentPM target is tracked by Git: ${install.targetPath}`,
+            remedy:
+              'Remove the generated target from Git tracking and keep only agentpm.yaml committed.',
+          });
+        }
+      }
     }
 
     return issues;
@@ -902,7 +1196,7 @@ export class AgentPmService {
         repo: resolveRegistryRepo(source.locator, entry.repo),
         ref: entry.ref ?? null,
         path: entry.path ?? null,
-        adapterHint: entry.adapterHint ?? null,
+        adapterHint: entry.target ?? entry.adapterHint ?? null,
         tags: entry.tags ?? [],
         metadata: {},
         createdAt: nowIso(),
@@ -942,6 +1236,52 @@ export class AgentPmService {
     } finally {
       await prepared.cleanup?.();
     }
+  }
+
+  private annotateInspectionForRequest(
+    report: InspectionReport,
+    options: { skill?: string | undefined; target?: AdapterId | undefined },
+  ): InspectionReport {
+    if (!options.skill && !options.target) {
+      return report;
+    }
+
+    const matchingEntries = listInstallableEntries(report).filter(
+      (entry) =>
+        (!options.skill ||
+          matchesCatalogEntrySelector(
+            {
+              id: '',
+              sourceId: '',
+              name: entry.name,
+              description: null,
+              repo: report.locator,
+              ref: null,
+              path: entry.relativePath,
+              adapterHint: entry.adapter,
+              tags: [],
+              metadata: {},
+              createdAt: '',
+              updatedAt: '',
+            },
+            options.skill,
+          )) &&
+        (!options.target || entry.adapter === options.target),
+    );
+    const request = [
+      options.skill ? `skill "${options.skill}"` : null,
+      options.target ? `target "${options.target}"` : null,
+    ]
+      .filter(Boolean)
+      .join(' with ');
+
+    return {
+      ...report,
+      warnings:
+        matchingEntries.length > 0
+          ? report.warnings
+          : [...report.warnings, `No detected entry satisfies ${request}.`],
+    };
   }
 
   private async classifySource(locator: string): Promise<SourceKind> {
@@ -1069,23 +1409,25 @@ export class AgentPmService {
       return binding.source.id;
     }
 
-    const source = this.findSourceByToken(token);
-    if (source) {
-      return source.id;
-    }
-
-    throw new AgentPmError(`Configured source not found: ${token}`);
+    throw new AgentPmError(
+      `Configured source not found in agentpm.yaml sources: ${token}`,
+    );
   }
 
   private resolveSourceForConfiguredSkill(
     items: string[],
     orderedSources: ConfiguredSourceBinding[],
+    target?: AdapterId,
   ): string {
     for (const binding of orderedSources) {
       const entries = this.db.listCatalogEntriesBySource(binding.source.id);
       if (
         items.some((item) =>
-          entries.some((entry) => matchesCatalogEntrySelector(entry, item)),
+          entries.some(
+            (entry) =>
+              matchesCatalogEntrySelector(entry, item) &&
+              matchesCatalogEntryTarget(entry, target),
+          ),
         )
       ) {
         return binding.source.id;
@@ -1093,8 +1435,9 @@ export class AgentPmService {
     }
 
     const selectors = items.length > 0 ? items.join(', ') : '(none)';
+    const targetSummary = target ? ` for target "${target}"` : '';
     throw new AgentPmError(
-      `No configured source contains requested skill selector(s): ${selectors}`,
+      `No configured source contains requested skill selector(s)${targetSummary}: ${selectors}`,
     );
   }
 
@@ -1245,6 +1588,39 @@ export class AgentPmService {
     );
   }
 
+  private async isGitTrackedPath(
+    scopeRoot: string,
+    targetPath: string,
+  ): Promise<boolean> {
+    const gitDir = path.join(scopeRoot, '.git');
+    const gitStats = await fs.stat(gitDir).catch(() => null);
+    if (!gitStats?.isDirectory()) {
+      return false;
+    }
+
+    const relativePath = path.relative(scopeRoot, targetPath);
+    if (
+      !relativePath ||
+      relativePath.startsWith('..') ||
+      path.isAbsolute(relativePath)
+    ) {
+      return false;
+    }
+
+    try {
+      await execFileAsync(
+        'git',
+        ['ls-files', '--error-unmatch', toPosixPath(relativePath)],
+        {
+          cwd: scopeRoot,
+        },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   private async prepareInspectionTarget(
     locator: string,
     kind: SourceKind,
@@ -1315,11 +1691,12 @@ export class AgentPmService {
         .listCatalogEntriesBySource(source.id)
         .filter(
           (entry) =>
-            !options.skills ||
-            options.skills.length === 0 ||
-            options.skills.some((skillSelector) =>
-              matchesCatalogEntrySelector(entry, skillSelector),
-            ),
+            (!options.skills ||
+              options.skills.length === 0 ||
+              options.skills.some((skillSelector) =>
+                matchesCatalogEntrySelector(entry, skillSelector),
+              )) &&
+            matchesCatalogEntryTarget(entry, options.target),
         );
       if (entries.length === 0) {
         throw new AgentPmError(
@@ -1334,14 +1711,18 @@ export class AgentPmService {
       if (source) {
         const entries = this.db
           .listCatalogEntriesBySource(source.id)
-          .filter((entry) =>
-            options.skills?.some((skillSelector) =>
-              matchesCatalogEntrySelector(entry, skillSelector),
-            ),
+          .filter(
+            (entry) =>
+              Boolean(
+                options.skills?.some((skillSelector) =>
+                  matchesCatalogEntrySelector(entry, skillSelector),
+                ),
+              ) && matchesCatalogEntryTarget(entry, options.target),
           );
         if (entries.length === 0) {
+          const targetSummary = options.target ? ` for ${options.target}` : '';
           throw new AgentPmError(
-            `No requested skills were found in source ${source.displayName}.`,
+            `No requested skills${targetSummary} were found in source ${source.displayName}.`,
           );
         }
         return entries.map((entry) => ({ source, entry }));
@@ -1393,10 +1774,17 @@ export class AgentPmService {
     for (const requestedName of requestedNames) {
       const matches = this.db
         .listCatalogEntries()
-        .filter((entry) => matchesCatalogEntrySelector(entry, requestedName));
+        .filter(
+          (entry) =>
+            matchesCatalogEntrySelector(entry, requestedName) &&
+            matchesCatalogEntryTarget(entry, options.target),
+        );
       if (matches.length === 0) {
+        const targetSummary = options.target
+          ? ` for target "${options.target}"`
+          : '';
         throw new AgentPmError(
-          `No catalog entry named "${requestedName}" found.`,
+          `No catalog entry named "${requestedName}"${targetSummary} found.`,
         );
       }
 

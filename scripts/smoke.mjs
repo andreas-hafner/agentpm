@@ -1,5 +1,12 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -53,14 +60,66 @@ try {
     stdio: 'ignore',
   });
 
-  const sourcePath = path.join(repoRoot, 'examples', 'repos', 'codex-sample');
+  const sourcePath = path.join(tempRoot, 'source');
+  cpSync(path.join(repoRoot, 'examples', 'repos', 'codex-sample'), sourcePath, {
+    recursive: true,
+  });
+  execFileSync('git', ['init', '-b', 'main'], {
+    cwd: sourcePath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['config', 'user.name', 'AgentPM Smoke'], {
+    cwd: sourcePath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['config', 'user.email', 'smoke@example.com'], {
+    cwd: sourcePath,
+    stdio: 'ignore',
+  });
+  execFileSync('git', ['add', '.'], { cwd: sourcePath, stdio: 'ignore' });
+  execFileSync('git', ['commit', '-m', 'initial'], {
+    cwd: sourcePath,
+    stdio: 'ignore',
+  });
+  const revision = execFileSync('git', ['rev-parse', 'HEAD'], {
+    cwd: sourcePath,
+    encoding: 'utf8',
+  }).trim();
+  const registryPath = path.join(tempRoot, 'registry', 'index.yaml');
+  mkdirSync(path.dirname(registryPath), { recursive: true });
+  writeFileSync(
+    registryPath,
+    [
+      'version: 1',
+      'entries:',
+      '  - name: smoke-audio',
+      '    description: Smoke test audio skill',
+      `    repo: ${JSON.stringify(sourcePath)}`,
+      '    ref: main',
+      '    path: .codex/skills/audio-mastering',
+      '    target: codex',
+      '    tags:',
+      '      - smoke',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
   writeFileSync(
     path.join(projectDir, 'agentpm.yaml'),
     [
       'sources:',
-      `  - ${JSON.stringify(`local:${sourcePath}`)}`,
+      '  - id: smoke-registry',
+      `    locator: ${JSON.stringify(`registry:${registryPath}`)}`,
       'skills:',
-      '  - audio-mastering',
+      '  - name: smoke-audio-package',
+      '    source: smoke-registry',
+      '    target: codex',
+      '    scope: project',
+      '    ref: main',
+      `    revision: ${revision}`,
+      '    items:',
+      '      - smoke-audio',
       '',
     ].join('\n'),
     'utf8',
@@ -72,15 +131,19 @@ try {
   const inspect = run(['inspect', sourcePath]);
   assertIncludes(inspect, 'Codex skills', 'inspect output');
   assertIncludes(inspect, 'audio-mastering', 'inspect output');
+  assertIncludes(inspect, 'Trust', 'inspect output');
+  assertIncludes(inspect, 'trusted (100/100)', 'inspect output');
 
   const sync = run(['sync'], { cwd: projectDir });
   assertIncludes(sync, 'Synced audio-mastering', 'sync output');
 
   const resolve = JSON.parse(run(['resolve', '--json'], { cwd: projectDir }));
   const projectEntry = resolve.layers.project.find(
-    (entry) => entry.name === 'audio-mastering',
+    (entry) =>
+      entry.name === 'smoke-audio' &&
+      entry.sourceRelativePath === '.codex/skills/audio-mastering',
   );
-  assert(projectEntry, 'resolve output did not include audio-mastering');
+  assert(projectEntry, 'resolve output did not include smoke-audio');
   assert(
     typeof projectEntry.targetPath === 'string' &&
       projectEntry.targetPath.endsWith(
@@ -101,6 +164,38 @@ try {
 
   const doctor = run(['doctor'], { cwd: projectDir });
   assertIncludes(doctor, 'Doctor found no issues.', 'doctor output');
+
+  const pushRemotePath = path.join(tempRoot, 'push-remote');
+  execFileSync('git', ['init', '--bare', pushRemotePath], { stdio: 'ignore' });
+
+  // Add target to agentpm.yaml
+  writeFileSync(
+    path.join(projectDir, 'agentpm.yaml'),
+    [
+      'sources:',
+      '  - id: smoke-registry',
+      `    locator: ${JSON.stringify(`registry:${registryPath}`)}`,
+      'targets:',
+      '  - id: smoke-push',
+      `    locator: ${JSON.stringify(pushRemotePath)}`,
+      '    default: true',
+      'skills:',
+      '  - name: smoke-audio-package',
+      '    source: smoke-registry',
+      '    target: codex',
+      '    scope: project',
+      '    ref: main',
+      `    revision: ${revision}`,
+      '    items:',
+      '      - smoke-audio',
+      '',
+    ].join('\n'),
+    'utf8',
+  );
+
+  const push = run(['push', '-m', 'smoke test push'], { cwd: projectDir });
+  assertIncludes(push, 'Pushed to', 'push output');
+  assertIncludes(push, pushRemotePath, 'push output');
 
   console.log('Smoke test passed.');
 } finally {
