@@ -2,11 +2,6 @@ PROJECT RULES
 
 GOAL: Build and maintain AgentPM as a Git-native CLI for discovering, installing, updating, and removing AI skills and agent assets across local folders, Git repositories, and static registry indexes.
 
-Default behavior:
-
-- Handle quick questions, explanations, reviews, triage, and small fixes directly.
-- Use `$implementation-workflow` from `.agents/skills/implementation-workflow/` for net-new implementation, substantial feature work, large refactors, or multi-step tasks that need explicit research, architecture, build, and validation.
-
 Architecture principles:
 
 - Keep the CLI thin. Put reusable behavior in `packages/core` and specialized concerns in the dedicated packages.
