@@ -231,6 +231,7 @@ export interface GlobalConfigFile {
         workspaceRoot?: string | undefined;
       }
     | undefined;
+  targets?: ManifestPushTargetSpec[] | undefined;
 }
 
 export interface SearchResult {

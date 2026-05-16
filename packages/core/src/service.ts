@@ -27,6 +27,7 @@ import {
   isBrokenLink,
   pathExists,
   removeManagedLink,
+  walkFiles,
 } from '@agentpm/fs';
 import {
   DEFAULT_DISCOVERY_PATHS,
@@ -337,25 +338,51 @@ export class AgentPmService {
           (entry) => !options.target || entry.adapter === options.target,
         );
         const detectedEntry =
+          // 1. Exact relativePath match
           detectedEntries.find((entry) => {
             if (selector.relativePath) {
               return entry.relativePath === selector.relativePath;
             }
             return selector.name ? entry.name === selector.name : false;
           }) ??
-          detectedEntries.find((entry) => entry.name === selection.entry.name);
+          // 2. Exact name match
+          detectedEntries.find((entry) => entry.name === selection.entry.name) ??
+          // 3. Basename match — handles nested paths like composio-skills/doppler-automation
+          (selector.relativePath
+            ? detectedEntries.find(
+                (entry) =>
+                  path.basename(entry.relativePath) === selector.relativePath,
+              )
+            : undefined) ??
+          // 4. Basename of relativePath matches the name hint
+          (selector.name
+            ? detectedEntries.find(
+                (entry) => path.basename(entry.relativePath) === selector.name,
+              )
+            : undefined);
 
         if (!detectedEntry) {
           const targetSummary = options.target
             ? ` for target "${options.target}"`
             : '';
+          const availableNames = detectedEntries
+            .slice(0, 20)
+            .map((e) => `  - ${e.name} (${e.relativePath})`)
+            .join('\n');
+          const moreNote =
+            detectedEntries.length > 20
+              ? `\n  ... and ${detectedEntries.length - 20} more`
+              : '';
           throw new AgentPmError(
-            `Could not find installable entry "${selection.entry.name}"${targetSummary} in ${prepared.contentLocator}.`,
+            `Could not find installable entry "${selection.entry.name}"${targetSummary} in ${prepared.contentLocator}.` +
+              (detectedEntries.length > 0
+                ? `\n\nAvailable entries in this repository:\n${availableNames}${moreNote}`
+                : '\n\nNo installable entries (SKILL.md) were detected in this repository.'),
           );
         }
 
         const adapter = getAdapter(detectedEntry.adapter);
-        const mapping = adapter.install(detectedEntry, scopeRoot);
+        const mapping = await adapter.install(detectedEntry, scopeRoot);
         const linkTarget = path.join(
           prepared.repoRoot,
           mapping.sourceRelativePath,
@@ -424,6 +451,7 @@ export class AgentPmService {
         });
 
         await this.recordGeneratedTargetInLocalGitExclude(savedInstall);
+        await this.ensureGitignored(scopeRoot, targetPath, options.yes);
         installs.push(savedInstall);
       } finally {
         await prepared.cleanup?.();
@@ -727,6 +755,42 @@ export class AgentPmService {
     return installs;
   }
 
+  async addTarget(
+    id: string,
+    locator: string,
+    global = false,
+  ): Promise<void> {
+    await this.initialize();
+    const sourceKind = await this.classifySource(locator);
+    const pushKind = sourceKind === 'local' ? 'git' as const : sourceKind;
+    if (global) {
+      const { addTargetToGlobalConfig } = await import('@agentpm/config');
+      await addTargetToGlobalConfig(this.cwd, {
+        id,
+        locator,
+        kind: pushKind,
+      }, this.env);
+    } else {
+      const { addTargetToProjectConfig } = await import('@agentpm/config');
+      await addTargetToProjectConfig(this.cwd, {
+        id,
+        locator,
+        kind: pushKind,
+      });
+    }
+  }
+
+  async removeTarget(id: string, global = false): Promise<void> {
+    await this.initialize();
+    if (global) {
+      const { removeTargetFromGlobalConfig } = await import('@agentpm/config');
+      await removeTargetFromGlobalConfig(this.cwd, id, this.env);
+    } else {
+      const { removeTargetFromProjectConfig } = await import('@agentpm/config');
+      await removeTargetFromProjectConfig(this.cwd, id);
+    }
+  }
+
   async push(options: PushOptions = {}): Promise<PushResult> {
     await this.initialize();
     const loadedConfig = await loadProjectConfig(this.cwd);
@@ -753,7 +817,13 @@ export class AgentPmService {
     token: string | undefined,
     config: LoadedProjectConfig | null,
   ): Promise<ManifestPushTargetSpec> {
-    const targets = config?.manifest.targets ?? [];
+    const { loadGlobalConfig } = await import('@agentpm/config');
+    const globalConfig = await loadGlobalConfig(this.cwd, this.env);
+
+    let targets = config?.manifest.targets ?? [];
+    if (targets.length === 0) {
+      targets = globalConfig.targets ?? [];
+    }
 
     if (token) {
       const match = targets.find((t) => t.id === token || t.locator === token);
@@ -776,7 +846,7 @@ export class AgentPmService {
     }
 
     throw new AgentPmError(
-      'No push target specified and no default target configured in agentpm.yaml.',
+      'No push target specified and no default target configured in agentpm.yaml or global config.',
     );
   }
 
@@ -795,50 +865,97 @@ export class AgentPmService {
       };
     }
 
-    try {
-      const remoteName = `target-${stableHash(locator).slice(0, 8)}`;
-      await execFileAsync('git', ['remote', 'add', remoteName, locator], {
-        cwd: skillPath,
-      }).catch(async () => {
-        await execFileAsync('git', ['remote', 'set-url', remoteName, locator], {
+    const isGitRepo = await pathExists(path.join(skillPath, '.git'));
+
+    if (isGitRepo) {
+      try {
+        const remoteName = `target-${stableHash(locator).slice(0, 8)}`;
+        await execFileAsync('git', ['remote', 'add', remoteName, locator], {
+          cwd: skillPath,
+        }).catch(async () => {
+          await execFileAsync('git', ['remote', 'set-url', remoteName, locator], {
+            cwd: skillPath,
+          });
+        });
+
+        if (message) {
+          await execFileAsync('git', ['add', '.'], { cwd: skillPath });
+          await execFileAsync('git', ['commit', '-m', message], {
+            cwd: skillPath,
+          }).catch(() => {
+            warnings.push('No changes to commit or commit failed.');
+          });
+        }
+
+        const branchResult = await execFileAsync(
+          'git',
+          ['rev-parse', '--abbrev-ref', 'HEAD'],
+          { cwd: skillPath },
+        );
+        const branch = branchResult.stdout.trim();
+
+        await execFileAsync('git', ['push', remoteName, branch], {
           cwd: skillPath,
         });
-      });
 
-      if (message) {
-        await execFileAsync('git', ['add', '.'], { cwd: skillPath });
-        await execFileAsync('git', ['commit', '-m', message], {
+        const revisionResult = await execFileAsync('git', ['rev-parse', 'HEAD'], {
           cwd: skillPath,
-        }).catch(() => {
+        });
+
+        return {
+          success: true,
+          targetLocator: locator,
+          revision: revisionResult.stdout.trim(),
+          warnings,
+        };
+      } catch (error) {
+        throw new AgentPmError(
+          `Git push failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    } else {
+      let tempRelease: any = null;
+      try {
+        tempRelease = await createTemporaryGitRelease(locator, []);
+        const { releasePath } = tempRelease;
+
+        const files = await walkFiles(skillPath);
+        for (const file of files) {
+          const relative = path.relative(skillPath, file);
+          const destination = path.join(releasePath, relative);
+          await fs.mkdir(path.dirname(destination), { recursive: true });
+          await fs.copyFile(file, destination);
+        }
+
+        const { simpleGit } = await import('simple-git');
+        const repo = simpleGit(releasePath);
+        await repo.add('.');
+        
+        const commitMessage = message ?? 'Update skill from AgentPM';
+        await repo.commit(commitMessage).catch(() => {
           warnings.push('No changes to commit or commit failed.');
         });
+
+        const branch = (await repo.revparse(['--abbrev-ref', 'HEAD'])).trim();
+        await repo.push('origin', branch);
+
+        const revision = (await repo.revparse(['HEAD'])).trim();
+
+        return {
+          success: true,
+          targetLocator: locator,
+          revision,
+          warnings,
+        };
+      } catch (error) {
+        throw new AgentPmError(
+          `Git push fallback failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      } finally {
+        if (tempRelease) {
+          await cleanupTemporaryRelease(tempRelease.releasePath).catch(() => {});
+        }
       }
-
-      const branchResult = await execFileAsync(
-        'git',
-        ['rev-parse', '--abbrev-ref', 'HEAD'],
-        { cwd: skillPath },
-      );
-      const branch = branchResult.stdout.trim();
-
-      await execFileAsync('git', ['push', remoteName, branch], {
-        cwd: skillPath,
-      });
-
-      const revisionResult = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-        cwd: skillPath,
-      });
-
-      return {
-        success: true,
-        targetLocator: locator,
-        revision: revisionResult.stdout.trim(),
-        warnings,
-      };
-    } catch (error) {
-      throw new AgentPmError(
-        `Git push failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
     }
   }
 
@@ -1588,6 +1705,77 @@ export class AgentPmService {
     );
   }
 
+  private async ensureGitignored(
+    scopeRoot: string,
+    targetPath: string,
+    yesOption?: boolean,
+  ): Promise<void> {
+    const gitDir = path.join(scopeRoot, '.git');
+    const gitStats = await fs.stat(gitDir).catch(() => null);
+    if (!gitStats?.isDirectory()) {
+      return;
+    }
+
+    const relativePath = path.relative(scopeRoot, targetPath);
+    if (
+      !relativePath ||
+      relativePath.startsWith('..') ||
+      path.isAbsolute(relativePath)
+    ) {
+      return;
+    }
+
+    const firstSegment = relativePath.replace(/\\/g, '/').split('/')[0] ?? '';
+    if (!firstSegment || !firstSegment.startsWith('.')) {
+      return;
+    }
+
+    const gitignorePath = path.join(scopeRoot, '.gitignore');
+    const existing = await fs.readFile(gitignorePath, 'utf8').catch(() => '');
+
+    const lines = existing.split(/\r?\n/);
+    const isIgnored = lines.some((line) => {
+      const trimmed = line.trim();
+      return (
+        trimmed === firstSegment ||
+        trimmed === `${firstSegment}/` ||
+        trimmed === `/${firstSegment}/` ||
+        trimmed === `/${firstSegment}`
+      );
+    });
+
+    if (isIgnored) {
+      return;
+    }
+
+    let shouldAdd = false;
+    if (yesOption) {
+      shouldAdd = true;
+    } else if (this.prompts.confirm) {
+      shouldAdd = await this.prompts.confirm(
+        `Would you like to add "${firstSegment}/" to your .gitignore?`,
+        [
+          `AgentPM manages links inside "${firstSegment}/" which should not be committed to Git.`,
+        ],
+      );
+    } else {
+      shouldAdd = true;
+    }
+
+    if (shouldAdd) {
+      const prefix =
+        existing.length === 0 || existing.endsWith('\n') ? '' : '\n';
+      const header = existing.includes('# AgentPM')
+        ? ''
+        : '\n# AgentPM managed folders\n';
+      await fs.appendFile(
+        gitignorePath,
+        `${prefix}${header}${firstSegment}/\n`,
+        'utf8',
+      );
+    }
+  }
+
   private async isGitTrackedPath(
     scopeRoot: string,
     targetPath: string,
@@ -1642,7 +1830,7 @@ export class AgentPmService {
 
     const release = await createTemporaryGitRelease(
       locator,
-      DEFAULT_DISCOVERY_PATHS,
+      [], // Empty array = FULL CHECKOUT! This guarantees that deep indexing discovers all skills in any arbitrary directory!
     );
     const report = await inspectRepository(release.releasePath, locator, 'git');
     return {
@@ -1874,9 +2062,10 @@ export class AgentPmService {
     }
 
     const cacheKey = makeId('cache', contentLocator, requestedRef ?? 'HEAD');
-    const release = await materializeGitRelease({
+    const cacheBasePath = this.cacheBasePath(cacheKey);
+    let release = await materializeGitRelease({
       locator: contentLocator,
-      basePath: this.cacheBasePath(cacheKey),
+      basePath: cacheBasePath,
       sparsePaths: normalizeSparsePaths([
         entry.path ?? '',
         ...DEFAULT_DISCOVERY_PATHS,
@@ -1885,12 +2074,32 @@ export class AgentPmService {
       revision: overrides.revision ?? null,
     });
 
-    return {
-      report: await inspectRepository(
+    let report = await inspectRepository(
+      release.releasePath,
+      contentLocator,
+      source.kind === 'local' ? 'local' : 'git',
+    );
+
+    let entries = listInstallableEntries(report);
+    if (entries.length === 0) {
+      // Fallback: if sparse checkout yielded no entries, do a full checkout!
+      await fs.rm(cacheBasePath, { recursive: true, force: true });
+      release = await materializeGitRelease({
+        locator: contentLocator,
+        basePath: cacheBasePath,
+        sparsePaths: [], // Empty array = FULL CHECKOUT!
+        ref: requestedRef,
+        revision: overrides.revision ?? null,
+      });
+      report = await inspectRepository(
         release.releasePath,
         contentLocator,
         source.kind === 'local' ? 'local' : 'git',
-      ),
+      );
+    }
+
+    return {
+      report,
       contentKind,
       contentLocator,
       contentRef: requestedRef,

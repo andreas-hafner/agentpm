@@ -482,6 +482,98 @@ export async function saveProjectConfig(
   return configPath;
 }
 
+export async function addTargetToProjectConfig(
+  cwd: string,
+  target: ManifestPushTargetSpec,
+): Promise<void> {
+  const loaded = await loadProjectConfig(cwd);
+  if (!loaded) {
+    throw new AgentPmError(`No ${PROJECT_CONFIG_FILENAME} found in ${cwd}.`);
+  }
+
+  const manifest = loaded.manifest;
+  const targets = manifest.targets ?? [];
+  const existingIndex = targets.findIndex((t) => t.id === target.id);
+  
+  if (existingIndex >= 0) {
+    targets[existingIndex] = target;
+  } else {
+    targets.push(target);
+  }
+
+  manifest.targets = targets;
+  await saveProjectConfig(cwd, {
+    version: manifest.version,
+    scope: 'project',
+    sources: manifest.sources,
+    targets: manifest.targets,
+    skills: manifest.installs,
+  });
+}
+
+export async function removeTargetFromProjectConfig(
+  cwd: string,
+  targetId: string,
+): Promise<void> {
+  const loaded = await loadProjectConfig(cwd);
+  if (!loaded) {
+    throw new AgentPmError(`No ${PROJECT_CONFIG_FILENAME} found in ${cwd}.`);
+  }
+
+  const manifest = loaded.manifest;
+  const targets = manifest.targets ?? [];
+  const nextTargets = targets.filter((t) => t.id !== targetId);
+
+  if (targets.length === nextTargets.length) {
+    throw new AgentPmError(`Target "${targetId}" not found in config.`);
+  }
+
+  manifest.targets = nextTargets;
+  await saveProjectConfig(cwd, {
+    version: manifest.version,
+    scope: 'project',
+    sources: manifest.sources,
+    targets: manifest.targets,
+    skills: manifest.installs,
+  });
+}
+
+export async function addTargetToGlobalConfig(
+  cwd: string,
+  target: ManifestPushTargetSpec,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const config = await loadGlobalConfig(cwd, env);
+  const targets = config.targets ?? [];
+  const existingIndex = targets.findIndex((t) => t.id === target.id);
+
+  if (existingIndex >= 0) {
+    targets[existingIndex] = target;
+  } else {
+    targets.push(target);
+  }
+
+  config.targets = targets;
+  await saveGlobalConfig(cwd, config, env);
+}
+
+export async function removeTargetFromGlobalConfig(
+  cwd: string,
+  targetId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const config = await loadGlobalConfig(cwd, env);
+  const targets = config.targets ?? [];
+  const nextTargets = targets.filter((t) => t.id !== targetId);
+
+  if (targets.length === nextTargets.length) {
+    throw new AgentPmError(`Target "${targetId}" not found in global config.`);
+  }
+
+  config.targets = nextTargets;
+  await saveGlobalConfig(cwd, config, env);
+}
+
 export function createEmptyManifest(): ManifestFile {
   return {
     version: MANIFEST_VERSION,

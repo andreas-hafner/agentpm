@@ -23,7 +23,7 @@ export interface SkillAdapter {
   id: AdapterId;
   detect(rootPath: string): Promise<DetectedGroup[]>;
   scoreCompatibility(report: InspectionReport): AdapterCompatibility;
-  install(entry: DetectedEntry, scopeRoot: string): InstallMapping;
+  install(entry: DetectedEntry, scopeRoot: string): Promise<InstallMapping>;
   update(record: InstallRecord, report: InspectionReport): AdapterUpdateResult;
   remove(record: InstallRecord): string[];
   validate(report: InspectionReport, entry: DetectedEntry): string[];
@@ -73,6 +73,12 @@ const LAYOUTS: LayoutDefinition[] = [
     relativeRoot: 'subagents',
     kind: 'subagent',
   },
+  {
+    adapter: 'generic',
+    label: 'Deep skills',
+    relativeRoot: '',
+    kind: 'skill',
+  },
 ];
 
 const SCRIPT_PATTERNS = [/^install\.(sh|ps1|js|mjs|cjs|ts)$/i];
@@ -101,7 +107,14 @@ function findEntryDirectories(
       ENTRY_MARKERS[layout.kind].includes(path.basename(filePath)),
     )
     .map((filePath) => path.dirname(filePath))
-    .filter((directoryPath) => directoryPath !== absoluteRoot)
+    .filter((directoryPath) => {
+      // For agents, we usually want to avoid the root README.md unless it's explicitly an AGENT.md
+      if (layout.kind === 'agent' && directoryPath === absoluteRoot) {
+        const markers = files.filter((f) => path.dirname(f) === absoluteRoot).map((f) => path.basename(f));
+        return markers.includes('AGENT.md') || markers.includes('CLAUDE.md');
+      }
+      return true;
+    })
     .sort(
       (left, right) =>
         left.split(path.sep).length - right.split(path.sep).length,
@@ -129,10 +142,15 @@ async function detectGroupsForLayout(
 
   const files = await walkFiles(absoluteRoot);
   const entryDirectories = findEntryDirectories(files, layout, absoluteRoot);
+
+  // Fallback: if no SKILL.md/README.md markers found in subdirectories,
+  // and we are NOT at the root level scan (relativeRoot != ''),
+  // assume children of the relativeRoot are entries.
   const fallbackDirectories =
-    entryDirectories.length === 0
+    entryDirectories.length === 0 && layout.relativeRoot !== ''
       ? await listChildDirectories(absoluteRoot)
       : [];
+
   const resolvedDirectories =
     entryDirectories.length > 0
       ? entryDirectories
@@ -160,7 +178,7 @@ async function detectGroupsForLayout(
       relativeRoot: layout.relativeRoot,
       kind: layout.kind,
       nativeTargetRelativeRoot: layout.relativeRoot,
-      confidence: 100,
+      confidence: layout.relativeRoot === '' ? 50 : 100,
       entries: entries.sort((left, right) =>
         left.relativePath.localeCompare(right.relativePath),
       ),
@@ -247,16 +265,52 @@ function createAdapter(id: AdapterId): SkillAdapter {
     scoreCompatibility(report: InspectionReport): AdapterCompatibility {
       return buildCompatibility(id, report.groups);
     },
-    install(entry: DetectedEntry): InstallMapping {
+    async install(entry: DetectedEntry, scopeRoot: string): Promise<InstallMapping> {
+      // Find the best target layout in the project
+      const targetGroups = (await Promise.all(ADAPTERS.map(a => a.detect(scopeRoot)))).flat();
+      const bestGroup = targetGroups.find(g => g.kind === entry.kind && g.adapter === id)
+        ?? targetGroups.find(g => g.kind === entry.kind);
+
+      // Default relative root based on the current adapter ID and entry kind
+      const defaultRelativeRoots: Record<AdapterId, Partial<Record<DetectedGroup['kind'], string>>> = {
+        codex: {
+          skill: '.agents/skills',
+        },
+        claude: {
+          agent: '.claude/agents',
+        },
+        generic: {
+          skill: '.agents/skills',
+          subagent: 'subagents',
+        },
+      };
+
+      const targetRoot = bestGroup?.relativeRoot 
+        ?? defaultRelativeRoots[id]?.[entry.kind]
+        ?? defaultRelativeRoots['generic'][entry.kind] 
+        ?? 'skills';
+
+      const standardRoots = new Set([
+        '.codex',
+        '.codex.cloud',
+        '.claude',
+        '.agents',
+        'skills',
+        'subagents',
+      ]);
+      const firstSegment = entry.relativePath.split('/')[0] ?? '';
+      const isStandardLayout = standardRoots.has(firstSegment);
+
+      const targetRelativePath = isStandardLayout
+        ? entry.relativePath
+        : toPosixPath(path.join(targetRoot, entry.name));
+
       return {
         name: entry.name,
-        adapter: entry.adapter,
+        adapter: id,
         sourceRelativePath: entry.relativePath,
-        sourceRootRelativePath: entry.relativePath
-          .split('/')
-          .slice(0, -1)
-          .join('/'),
-        targetRelativePath: entry.relativePath,
+        sourceRootRelativePath: entry.relativePath === '.' ? '' : entry.relativePath.split('/').slice(0, -1).join('/'),
+        targetRelativePath,
       };
     },
     update(
@@ -306,9 +360,9 @@ function createAdapter(id: AdapterId): SkillAdapter {
 }
 
 export const ADAPTERS: SkillAdapter[] = [
-  createAdapter('generic'),
   createAdapter('codex'),
   createAdapter('claude'),
+  createAdapter('generic'),
 ];
 
 export function getAdapter(adapterId: AdapterId): SkillAdapter {
@@ -366,6 +420,7 @@ export async function inspectRepository(
   const groups = (
     await Promise.all(ADAPTERS.map((adapter) => adapter.detect(repoPath)))
   ).flat();
+
   const scripts = (await detectInstallScripts(repoPath)).sort((left, right) =>
     left.relativePath.localeCompare(right.relativePath),
   );
@@ -403,7 +458,33 @@ export async function inspectRepository(
 export function listInstallableEntries(
   report: InspectionReport,
 ): DetectedEntry[] {
-  return flattenEntries(report.groups);
+  const all = flattenEntries(report.groups);
+  const seen = new Set<string>();
+  const result: DetectedEntry[] = [];
+
+  // Prioritize specific layout and adapter matches over Deep skills fallback
+  const sorted = [...all].sort((a, b) => {
+    // 1. Prioritize specific adapters (non-generic) over generic
+    if (a.adapter !== 'generic' && b.adapter === 'generic') return -1;
+    if (a.adapter === 'generic' && b.adapter !== 'generic') return 1;
+
+    // 2. Prioritize non-empty relativeRoot (specific matches) over empty (Deep skills fallback)
+    const aIsDeep = a.rootRelativePath === a.relativePath;
+    const bIsDeep = b.rootRelativePath === b.relativePath;
+    if (!aIsDeep && bIsDeep) return -1;
+    if (aIsDeep && !bIsDeep) return 1;
+
+    return 0;
+  });
+
+  for (const entry of sorted) {
+    if (!seen.has(entry.relativePath)) {
+      seen.add(entry.relativePath);
+      result.push(entry);
+    }
+  }
+
+  return result.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
 }
 
 export function findDetectedEntry(

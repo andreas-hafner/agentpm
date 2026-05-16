@@ -30,3 +30,14 @@ GitHub push gate:
 - Ask `Ready to push to GitHub? (yes/no)` before any push.
 - Never push on main without an explicit `yes`.
 
+## Git safety
+
+- Classify changes as major, minor, patch, or none.
+- Do not start multi-agent parallel delivery in a greenfield repo until a repo-root `AGENTS.md` or equivalent local governance scaffold exists.
+- Before editing `VERSION`, `CHANGELOG.md`, release notes, or change fragments, determine the repo's release law.
+- Only update `[Unreleased]` when the repo explicitly uses that model for unreleased work.
+- If the repo uses change fragments or release-managed versioning, follow that system instead of editing `VERSION` or `CHANGELOG.md` during normal feature work.
+- Suggest Conventional Commit style titles when preparing commits.
+- Never commit or push without explicit approval.
+- Never force-push a shared branch.
+- Never rewrite shared history.

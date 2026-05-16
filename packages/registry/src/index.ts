@@ -311,6 +311,7 @@ async function loadSkillsHubIndex(locator: string): Promise<RegistryIndexFile> {
         name: skill.slug,
         description: skill.name,
         repo: `https://github.com/${skill.repo.githubOwner}/${skill.repo.githubRepoName}`,
+        path: skill.slug,
         tags: skill.tags.length > 0 ? skill.tags : ['skillshub'],
       });
     }

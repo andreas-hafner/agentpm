@@ -393,4 +393,39 @@ describe('install and manifest flows', () => {
       service.close();
     }
   }, 15000);
+
+  test('configures global targets and falls back to global targets when no local agentpm.yaml is present', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const projectDir = await makeTempDir('agentpm-project-');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      // 1. Add target globally
+      await service.addTarget('global-git-target', 'https://github.com/my-org/my-target-repo.git', true);
+
+      // 2. Load global config and assert target is saved globally
+      const { loadGlobalConfig } = await import('@agentpm/config');
+      const globalConfig = await loadGlobalConfig(projectDir, { AGENTPM_HOME: homeDir });
+      expect(globalConfig.targets).toHaveLength(1);
+      expect(globalConfig.targets?.[0]?.id).toBe('global-git-target');
+      expect(globalConfig.targets?.[0]?.locator).toBe('https://github.com/my-org/my-target-repo.git');
+      expect(globalConfig.targets?.[0]?.kind).toBe('git');
+
+      // 3. Perform a dry-run push and assert it resolves to the global target because there is no local agentpm.yaml
+      const result = await service.push({ target: 'global-git-target', dryRun: true });
+      expect(result.success).toBe(true);
+      expect(result.targetLocator).toBe('https://github.com/my-org/my-target-repo.git');
+
+      // 4. Remove target globally
+      await service.removeTarget('global-git-target', true);
+      const nextGlobalConfig = await loadGlobalConfig(projectDir, { AGENTPM_HOME: homeDir });
+      expect(nextGlobalConfig.targets).toHaveLength(0);
+    } finally {
+      service.close();
+    }
+  });
 });
+

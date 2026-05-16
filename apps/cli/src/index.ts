@@ -27,13 +27,35 @@ function colorize(text: string, code: number): string {
   return `\u001B[${code}m${text}\u001B[0m`;
 }
 
+// Premium palette styles (ANSI codes)
+const style = {
+  cyan: (t: string) => colorize(t, 36),
+  green: (t: string) => colorize(t, 32),
+  yellow: (t: string) => colorize(t, 33),
+  red: (t: string) => colorize(t, 31),
+  gray: (t: string) => colorize(t, 90),
+  bold: (t: string) => colorize(t, 1),
+  underline: (t: string) => colorize(t, 4),
+  magenta: (t: string) => colorize(t, 35),
+};
+
+const symbols = {
+  success: colorize('✔', 32),
+  info: colorize('ℹ', 36),
+  warning: colorize('⚠', 33),
+  error: colorize('✖', 31),
+  arrow: colorize('➤', 36),
+  star: colorize('★', 33),
+  bullet: colorize('▪', 90),
+};
+
 function brandBlock(): string {
-  const logo = BRAND_LINES.map((line) => colorize(line, 36)).join('\n');
-  return `${logo}\n${colorize('Project-aware AI skill orchestration', 2)}\n`;
+  const logo = BRAND_LINES.map((line) => style.cyan(line)).join('\n');
+  return `\n${logo}\n\n  ${style.bold(style.cyan('AgentPM'))} ${style.gray('—')} ${style.bold('Project-aware AI skill orchestration')}\n`;
 }
 
 function section(title: string): void {
-  console.log(colorize(title, 36));
+  console.log(`\n${style.bold(style.cyan(title))}`);
 }
 
 function resolveScope(flags: {
@@ -67,129 +89,153 @@ function printInspection(
   report: Awaited<ReturnType<AgentPmService['inspect']>>,
 ): void {
   section('Source');
-  console.log(`  locator      ${report.locator}`);
-  console.log(`  installable  ${report.installable ? 'yes' : 'no'}`);
+  console.log(`  ${symbols.bullet} locator      : ${style.bold(report.locator)}`);
+  console.log(`  ${symbols.bullet} installable  : ${report.installable ? style.green('yes') : style.red('no')}`);
+  
   section('Trust');
   const trustColor = report.trust.trusted ? 32 : 33;
   console.log(
-    `  ${colorize(report.trust.trusted ? 'trusted' : 'untrusted', trustColor)} (${report.trust.score}/100)`,
+    `  ${symbols.bullet} status       : ${colorize(report.trust.trusted ? 'trusted' : 'untrusted', trustColor)} (${style.bold(report.trust.score.toString())}/100)`,
   );
   for (const reason of report.trust.reasons) {
-    console.log(`    - ${reason}`);
+    console.log(`    ${style.gray('-')} ${reason}`);
   }
+  
   section('Detected');
   if (report.groups.length === 0) {
-    console.log('  - none');
+    console.log(`  ${symbols.warning} no components detected`);
   }
   for (const group of report.groups) {
-    console.log(`  [ok] ${group.label} (${group.entries.length})`);
+    console.log(`  ${symbols.success} ${style.green(group.label)} (${group.entries.length} entries)`);
   }
+  
   section('Compatibility');
   for (const compatibility of report.compatibleAdapters) {
-    const marker = compatibility.compatible ? '[ok]' : '[?]';
+    const statusSymbol = compatibility.compatible ? symbols.success : symbols.warning;
     console.log(
-      `  ${marker} ${compatibility.adapter} (${compatibility.score})`,
+      `  ${statusSymbol} ${style.bold(compatibility.adapter)} (compatibility score: ${style.bold(compatibility.score.toString())}/100)`,
     );
     for (const reason of compatibility.reasons) {
-      console.log(`    - ${reason}`);
+      console.log(`    ${style.gray('-')} ${reason}`);
     }
   }
+  
   section('Entries');
   for (const group of report.groups) {
     for (const entry of group.entries) {
-      console.log(`  - ${entry.name} -> ${entry.relativePath}`);
+      console.log(`  ${symbols.arrow} ${style.bold(entry.name)} ${style.gray('→')} ${style.underline(entry.relativePath)}`);
     }
   }
+  
   if (report.scripts.length > 0) {
     section('Risks');
     for (const script of report.scripts) {
-      console.log(`  - custom install script: ${script.relativePath}`);
+      console.log(`  ${symbols.warning} custom install script found: ${style.yellow(script.relativePath)}`);
     }
   }
+  
   if (report.warnings.length > 0) {
     section('Warnings');
     for (const warning of report.warnings) {
-      console.log(`  - ${warning}`);
+      console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
     }
   }
+  console.log('');
 }
 
 function printRuntimeContext(
   graph: Awaited<ReturnType<AgentPmService['resolveRuntimeContext']>>,
 ): void {
   section('Runtime');
-  console.log(`  project  ${graph.cwd}`);
+  console.log(`  ${symbols.bullet} Root Workspace : ${style.bold(graph.cwd)}`);
   if (graph.configPath) {
-    console.log(`  config   ${graph.configPath}`);
+    console.log(`  ${symbols.bullet} Config File    : ${style.bold(graph.configPath)}`);
   }
+  
   for (const layer of ['global', 'project', 'temporary'] as const) {
     const entries = graph.layers[layer];
     section(`${layer[0]!.toUpperCase()}${layer.slice(1)}`);
     if (entries.length === 0) {
-      console.log('  - none');
+      console.log(`  ${style.gray('-')} no entries active in this layer`);
       continue;
     }
     for (const entry of entries) {
-      const source = entry.sourceLocator ? ` (${entry.sourceLocator})` : '';
+      const source = entry.sourceLocator ? ` [source: ${entry.sourceLocator}]` : '';
       const pathSummary = entry.sourceRelativePath
-        ? ` -> ${entry.sourceRelativePath}`
+        ? ` ${style.gray('→')} ${entry.sourceRelativePath}`
         : '';
-      console.log(`  - ${entry.name}${pathSummary}${source}`);
+      console.log(`  ${symbols.success} ${style.bold(entry.name)}${pathSummary}${style.gray(source)}`);
       for (const warning of entry.warnings) {
-        console.log(`    warning: ${warning}`);
+        console.log(`    ${symbols.warning} ${style.yellow(warning)}`);
       }
     }
   }
-  for (const warning of graph.warnings) {
-    console.log(`warning: ${warning}`);
+  
+  if (graph.warnings.length > 0) {
+    section('Warnings');
+    for (const warning of graph.warnings) {
+      console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+    }
   }
+  console.log('');
 }
 
 function printUpdates(
   previews: Awaited<ReturnType<AgentPmService['previewUpdates']>>,
 ): void {
   if (previews.length === 0) {
-    console.log('No installs found.');
+    console.log(`\n${symbols.info} No installed skills or assets detected.`);
     return;
   }
 
+  section('Skill Update Preview');
   for (const preview of previews) {
     const revisionSummary =
       preview.currentRevision && preview.candidateRevision
-        ? `${preview.currentRevision.slice(0, 7)} -> ${preview.candidateRevision.slice(0, 7)}`
+        ? `${style.bold(preview.currentRevision.slice(0, 7))} ${style.gray('→')} ${style.bold(preview.candidateRevision.slice(0, 7))}`
         : 'n/a';
+    const statusText = preview.changed ? style.yellow('update available') : style.green('up to date');
+    const statusSymbol = preview.changed ? symbols.warning : symbols.success;
+    
     console.log(
-      `${preview.install.name}: ${preview.changed ? 'changed' : 'up to date'} (${revisionSummary})`,
+      `  ${statusSymbol} ${style.bold(preview.install.name)}: ${statusText} (${revisionSummary})`,
     );
     if (preview.changed) {
-      console.log(`  risk: ${preview.risk}`);
+      console.log(`    ${symbols.bullet} Risk Profile: ${style.bold(preview.risk)}`);
       for (const diff of preview.diff) {
-        console.log(`  ${diff.kind}: ${diff.path}`);
+        console.log(`      ${style.gray('-')} ${style.cyan(diff.kind.padEnd(8))} : ${diff.path}`);
       }
       for (const warning of preview.warnings) {
-        console.log(`  warning: ${warning}`);
+        console.log(`      ${symbols.warning} ${style.yellow(warning)}`);
       }
     }
   }
+  console.log('');
 }
 
 function printDoctor(
   issues: Awaited<ReturnType<AgentPmService['doctor']>>,
 ): void {
   if (issues.length === 0) {
-    console.log('Doctor found no issues.');
+    console.log(`\n${symbols.success} Doctor found no issues. Your environment is perfectly healthy!`);
     return;
   }
 
+  section('Doctor Diagnosis');
   for (const issue of issues) {
-    console.log(`[${issue.severity}] ${issue.code}: ${issue.message}`);
+    const isError = issue.severity === 'error';
+    const severitySymbol = isError ? symbols.error : symbols.warning;
+    const severityText = isError ? style.red(issue.severity.toUpperCase()) : style.yellow(issue.severity.toUpperCase());
+    
+    console.log(`  ${severitySymbol} [${severityText}] ${style.bold(issue.code)}: ${issue.message}`);
     if (issue.path) {
-      console.log(`  path: ${issue.path}`);
+      console.log(`    ${style.gray('Path   :')} ${issue.path}`);
     }
     if (issue.remedy) {
-      console.log(`  remedy: ${issue.remedy}`);
+      console.log(`    ${style.gray('Remedy :')} ${style.green(issue.remedy)}`);
     }
   }
+  console.log('');
 }
 
 async function checkFirstStart(service: AgentPmService): Promise<void> {
@@ -250,7 +296,7 @@ source
   .action(async (locator: string) => {
     const result = await withService((service) => service.addSource(locator));
     console.log(
-      `Added source ${result.source.displayName} (${result.indexedEntries} entries indexed)`,
+      `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
     );
   });
 
@@ -272,7 +318,70 @@ source
   .argument('<source>', 'Source id or locator')
   .action(async (sourceToken: string) => {
     await withService((service) => service.removeSource(sourceToken));
-    console.log(`Removed source ${sourceToken}`);
+    console.log(`\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`);
+  });
+
+const targetCmd = program
+  .command('target')
+  .alias('targets')
+  .description('Manage push targets in project config');
+
+targetCmd
+  .command('add')
+  .argument('<id>', 'Target ID')
+  .argument('<locator>', 'Target locator (Git URL or registry path)')
+  .option('--global', 'Add target to global config')
+  .action(async (id: string, locator: string, flags: { global?: boolean }) => {
+    await withService((service) => service.addTarget(id, locator, flags.global));
+    if (flags.global) {
+      console.log(`\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config\n`);
+    } else {
+      console.log(`\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}\n`);
+    }
+  });
+
+targetCmd
+  .command('remove')
+  .argument('<id>', 'Target ID')
+  .option('--global', 'Remove target from global config')
+  .action(async (id: string, flags: { global?: boolean }) => {
+    await withService((service) => service.removeTarget(id, flags.global));
+    if (flags.global) {
+      console.log(`\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`);
+    } else {
+      console.log(`\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from ${style.bold('agentpm.yaml')}\n`);
+    }
+  });
+
+targetCmd
+  .command('list')
+  .action(async () => {
+    const { loadProjectConfig, loadGlobalConfig } = await import('@agentpm/config');
+    const config = await loadProjectConfig(process.cwd());
+    const globalConfig = await loadGlobalConfig(process.cwd());
+
+    const projectTargets = config?.manifest.targets ?? [];
+    const globalTargets = globalConfig.targets ?? [];
+
+    if (projectTargets.length === 0 && globalTargets.length === 0) {
+      console.log('No targets configured in agentpm.yaml or global config.');
+      return;
+    }
+
+    if (projectTargets.length > 0) {
+      console.log('Project Targets (agentpm.yaml):');
+      for (const target of projectTargets) {
+        console.log(`${target.default ? '*' : ' '} ${target.id.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
+      }
+      console.log('');
+    }
+
+    if (globalTargets.length > 0) {
+      console.log('Global Targets (config.yaml):');
+      for (const target of globalTargets) {
+        console.log(`${target.default ? '*' : ' '} ${target.id.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
+      }
+    }
   });
 
 program
@@ -353,7 +462,7 @@ program
         }),
       );
       for (const install of installs) {
-        console.log(`Installed ${install.name} -> ${install.targetPath}`);
+        console.log(`\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`);
       }
 
       if (installs.length > 0 && !flags.global) {
@@ -395,7 +504,7 @@ program
     const removed = await withService((service) =>
       service.removeInstall(name, { purge: Boolean(flags.purge) }),
     );
-    console.log(`Removed ${removed.name}`);
+    console.log(`\n${symbols.success} ${style.bold('Removed')} ${style.green(removed.name)}\n`);
   });
 
 program
@@ -418,13 +527,14 @@ program
         }),
       );
       if (result.success) {
-        console.log(`Pushed to ${result.targetLocator}`);
+        console.log(`\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`);
         if (result.revision) {
-          console.log(`Revision: ${result.revision}`);
+          console.log(`  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`);
         }
         for (const warning of result.warnings) {
-          console.log(`warning: ${warning}`);
+          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
         }
+        console.log('');
       }
     },
   );
@@ -444,7 +554,7 @@ program.command('list').action(async () => {
 
 program.command('init').action(async () => {
   const result = await withService((service) => service.initManifest());
-  console.log(`Wrote ${result.manifestPath}`);
+  console.log(`\n${symbols.success} ${style.bold('Initialized manifest')} ${style.gray('→')} ${style.underline(result.manifestPath)}\n`);
 });
 
 program.command('sync').action(async () => {
@@ -452,7 +562,7 @@ program.command('sync').action(async () => {
     checkFirstStart: false,
   });
   for (const install of installs) {
-    console.log(`Synced ${install.name}`);
+    console.log(`${symbols.success} ${style.bold('Synced')} ${style.green(install.name)}`);
   }
 });
 
@@ -490,7 +600,12 @@ try {
     if (err.message === '(outputHelp)' || err.message === program.version()) {
       process.exit(0);
     }
-    console.error(`Error: ${err.message}`);
+    console.error(`\n${symbols.error} ${style.bold(style.red('AgentPM Command Failed'))}`);
+    console.error(`  ${style.red(err.message)}`);
+    console.error(`\n${style.gray('Need help? Run a diagnostic check using:')} ${style.cyan('agentpm doctor')}\n`);
+  } else {
+    console.error(`\n${symbols.error} ${style.bold(style.red('An unexpected error occurred'))}`);
+    console.error(`  ${style.red(String(err))}\n`);
   }
   process.exit(1);
 }

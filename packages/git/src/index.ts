@@ -47,7 +47,9 @@ export async function resolveGitRevision(locator: string, ref?: string | null): 
     return revision.trim();
   }
 
-  const git = simpleGit();
+  const git = simpleGit({
+    spawnOptions: { stdio: ['inherit', 'pipe', 'inherit'] },
+  } as any);
   const target = ref ?? 'HEAD';
   const output = await git.listRemote([locator, target]);
   const firstLine = output.split('\n').find((line) => line.trim().length > 0);
@@ -72,7 +74,9 @@ export async function materializeGitRelease(options: GitReleaseOptions): Promise
     cloneArgs.push('--branch', options.ref);
   }
 
-  const git = simpleGit();
+  const git = simpleGit({
+    spawnOptions: { stdio: ['inherit', 'pipe', 'inherit'] },
+  } as any);
   await git.clone(options.locator, releasePath, cloneArgs);
 
   const repo = simpleGit(releasePath);

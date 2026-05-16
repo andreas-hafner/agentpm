@@ -1,6 +1,6 @@
 {
   "name": "@agentpm/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "exports": {
     ".": "./dist/index.js"
@@ -15,6 +15,7 @@
     "@agentpm/fs": "workspace:*",
     "@agentpm/git": "workspace:*",
     "@agentpm/registry": "workspace:*",
-    "@agentpm/shared": "workspace:*"
+    "@agentpm/shared": "workspace:*",
+    "simple-git": "^3.28.0"
   }
 }
