@@ -139,3 +139,6 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 - [Registry Guide](./docs/registry-guide.md)
 - [Concept](./docs/concept.md)
 - [Plan](./docs/plan.md)
+- [Changelog](./CHANGELOG.md)
+- [Contributing](./CONTRIBUTING.md)
+- [Security Policy](./SECURITY.md)
