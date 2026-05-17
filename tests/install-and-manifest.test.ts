@@ -5,7 +5,7 @@ import { describe, expect, test } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
 
-import { copyDir, initFixtureGitRepo, makeTempDir, writeFile } from './helpers';
+import { copyDir, git, initFixtureGitRepo, makeTempDir, writeFile } from './helpers';
 
 describe('install and manifest flows', () => {
   test('installs a local generic skill into project scope and writes a manifest', async () => {
@@ -397,6 +397,10 @@ describe('install and manifest flows', () => {
   test('configures global targets and falls back to global targets when no local agentpm.yaml is present', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const projectDir = await makeTempDir('agentpm-project-');
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'local-skill', 'SKILL.md'),
+      '# local skill\n',
+    );
 
     const service = new AgentPmService({
       cwd: projectDir,
@@ -427,5 +431,109 @@ describe('install and manifest flows', () => {
       service.close();
     }
   });
-});
 
+  test('pushes a selected workspace skill to its native subfolder in an empty target repository', async () => {
+    const projectDir = await makeTempDir('agentpm-push-project-');
+    const remoteDir = await makeTempDir('agentpm-push-remote-');
+    const remoteRepo = path.join(remoteDir, 'skills.git');
+    const verifyDir = path.join(remoteDir, 'verify');
+
+    git(remoteDir, 'init', '--bare', remoteRepo);
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+      '# pushed skill\n',
+    );
+    await writeFile(path.join(projectDir, 'README.md'), 'workspace root\n');
+    git(projectDir, 'init', '-b', 'main');
+    git(projectDir, 'config', 'user.name', 'AgentPM Tests');
+    git(projectDir, 'config', 'user.email', 'tests@example.com');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: {
+        GIT_AUTHOR_NAME: 'AgentPM Tests',
+        GIT_AUTHOR_EMAIL: 'tests@example.com',
+        GIT_COMMITTER_NAME: 'AgentPM Tests',
+        GIT_COMMITTER_EMAIL: 'tests@example.com',
+      },
+    });
+    try {
+      const result = await service.push({
+        target: remoteRepo,
+        path: 'skill-a',
+        message: 'Initial push',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.revision).toMatch(/^[0-9a-f]{40}$/);
+      expect(result.entries).toEqual(['.agents/skills/skill-a']);
+
+      git(remoteDir, 'clone', remoteRepo, verifyDir);
+      expect(
+        await fs.readFile(
+          path.join(verifyDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+          'utf8',
+        ),
+      ).toContain('# pushed skill');
+      expect(await fs.stat(path.join(verifyDir, 'README.md')).catch(() => null)).toBeNull();
+    } finally {
+      service.close();
+    }
+  }, 15000);
+
+  test('push can interactively select individual workspace skills', async () => {
+    const projectDir = await makeTempDir('agentpm-push-project-');
+    const remoteDir = await makeTempDir('agentpm-push-remote-');
+    const remoteRepo = path.join(remoteDir, 'skills.git');
+    const verifyDir = path.join(remoteDir, 'verify');
+
+    git(remoteDir, 'init', '--bare', remoteRepo);
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+      '# skill a\n',
+    );
+    await writeFile(
+      path.join(projectDir, '.codex', 'skills', 'skill-b', 'SKILL.md'),
+      '# skill b\n',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: {
+        GIT_AUTHOR_NAME: 'AgentPM Tests',
+        GIT_AUTHOR_EMAIL: 'tests@example.com',
+        GIT_COMMITTER_NAME: 'AgentPM Tests',
+        GIT_COMMITTER_EMAIL: 'tests@example.com',
+      },
+      prompts: {
+        selectMany: (_message, options) => Promise.resolve([
+          options.find((option) => option.label === 'skill-b')!.value,
+        ]),
+      },
+    });
+
+    try {
+      const result = await service.push({
+        target: remoteRepo,
+        message: 'Push selected skill',
+      });
+
+      expect(result.entries).toEqual(['.codex/skills/skill-b']);
+
+      git(remoteDir, 'clone', remoteRepo, verifyDir);
+      expect(
+        await fs.readFile(
+          path.join(verifyDir, '.codex', 'skills', 'skill-b', 'SKILL.md'),
+          'utf8',
+        ),
+      ).toContain('# skill b');
+      expect(
+        await fs
+          .stat(path.join(verifyDir, '.agents', 'skills', 'skill-a'))
+          .catch(() => null),
+      ).toBeNull();
+    } finally {
+      service.close();
+    }
+  }, 15000);
+});

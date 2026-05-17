@@ -39,6 +39,7 @@ import {
   normalizeSparsePaths,
   resolveGitRevision,
   resolveReleasePath,
+  runGitCommand,
 } from '@agentpm/git';
 import { loadRegistryIndex } from '@agentpm/registry';
 import {
@@ -49,7 +50,6 @@ import {
   makeId,
   nowIso,
   slugify,
-  stableHash,
   toPosixPath,
   type CacheRepoRecord,
   type CatalogEntryRecord,
@@ -130,6 +130,14 @@ interface PreparedContent {
 interface ConfiguredSourceBinding {
   spec: ManifestSourceSpec;
   source: SourceRecord;
+}
+
+interface PushCandidate {
+  name: string;
+  adapter: AdapterId;
+  sourcePath: string;
+  sourceRelativePath: string;
+  destinationRelativePath: string;
 }
 
 const execFileAsync = promisify(execFile);
@@ -476,6 +484,7 @@ export class AgentPmService {
       const candidateRevision = await resolveGitRevision(
         install.contentLocator,
         install.contentRef ?? undefined,
+        this.env,
       );
       if (candidateRevision === install.installedRevision) {
         previews.push({
@@ -795,12 +804,21 @@ export class AgentPmService {
     await this.initialize();
     const loadedConfig = await loadProjectConfig(this.cwd);
     const target = await this.resolvePushTarget(options.target, loadedConfig);
-    const skillPath = path.resolve(this.cwd, options.path ?? '.');
+    const entries = await this.resolvePushCandidates(options.path, options.all);
+
+    if (entries.length === 0) {
+      return {
+        success: true,
+        targetLocator: target.locator,
+        warnings: ['No entries selected.'],
+        entries: [],
+      };
+    }
 
     if (target.kind === 'git') {
       return this.pushToGit(
-        skillPath,
         target.locator,
+        entries,
         options.message,
         options.dryRun,
       );
@@ -850,111 +868,219 @@ export class AgentPmService {
     );
   }
 
+  private async discoverPushCandidates(rootPath: string): Promise<PushCandidate[]> {
+    const report = await inspectRepository(rootPath, rootPath, 'local');
+    const entries = listInstallableEntries(report);
+    const candidates = await Promise.all(
+      entries.map(async (entry) => {
+        const mapping = await getAdapter(entry.adapter).install(entry, rootPath);
+        return {
+          name: mapping.name,
+          adapter: mapping.adapter,
+          sourcePath: path.join(rootPath, mapping.sourceRelativePath),
+          sourceRelativePath: mapping.sourceRelativePath,
+          destinationRelativePath: mapping.targetRelativePath,
+        } satisfies PushCandidate;
+      }),
+    );
+
+    return candidates.sort((left, right) =>
+      left.destinationRelativePath.localeCompare(right.destinationRelativePath),
+    );
+  }
+
+  private async resolvePushCandidates(
+    token: string | undefined,
+    all = false,
+  ): Promise<PushCandidate[]> {
+    const workspaceCandidates = await this.discoverPushCandidates(this.cwd);
+
+    if (workspaceCandidates.length === 0) {
+      throw new AgentPmError(
+        'No pushable skills or agents were detected in the current workspace.',
+      );
+    }
+
+    if (all) {
+      return workspaceCandidates;
+    }
+
+    const normalizedToken = normalizeCatalogSelector(token ?? '.');
+    if (normalizedToken && normalizedToken !== '.') {
+      const resolvedPath = path.resolve(this.cwd, normalizedToken);
+      const pathMatches = (await pathExists(resolvedPath))
+        ? workspaceCandidates.filter((candidate) => {
+            const candidateRoot = path.resolve(candidate.sourcePath);
+            return (
+              resolvedPath === candidateRoot ||
+              resolvedPath.startsWith(`${candidateRoot}${path.sep}`)
+            );
+          })
+        : [];
+
+      if (pathMatches.length > 0) {
+        return this.choosePushCandidates(pathMatches, normalizedToken);
+      }
+
+      const selectorMatches = workspaceCandidates.filter((candidate) => {
+        const destinationBase = path.basename(candidate.destinationRelativePath);
+        const sourceBase = path.basename(candidate.sourceRelativePath);
+        return (
+          candidate.name === normalizedToken ||
+          candidate.sourceRelativePath === normalizedToken ||
+          candidate.destinationRelativePath === normalizedToken ||
+          sourceBase === normalizedToken ||
+          destinationBase === normalizedToken
+        );
+      });
+
+      if (selectorMatches.length > 0) {
+        return this.choosePushCandidates(selectorMatches, normalizedToken);
+      }
+
+      if (await pathExists(resolvedPath)) {
+        const directCandidates = await this.discoverPushCandidates(resolvedPath);
+        if (directCandidates.length > 0) {
+          return directCandidates;
+        }
+      }
+
+      const available = workspaceCandidates
+        .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+        .join('\n');
+      throw new AgentPmError(
+        `Could not find a pushable skill or agent matching "${token}".\n\nAvailable entries:\n${available}`,
+      );
+    }
+
+    if (workspaceCandidates.length === 1) {
+      return workspaceCandidates;
+    }
+
+    if (this.prompts.selectMany) {
+      return this.prompts.selectMany(
+        'Choose skills or agents to push:',
+        workspaceCandidates.map((candidate) => ({
+          label: candidate.name,
+          value: candidate,
+          description: `${candidate.adapter}  ${candidate.destinationRelativePath}`,
+        })),
+      );
+    }
+
+    const available = workspaceCandidates
+      .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+      .join('\n');
+    throw new AgentPmError(
+      `Multiple pushable entries were detected. Re-run with a skill name, a path, or --all.\n\nAvailable entries:\n${available}`,
+    );
+  }
+
+  private async choosePushCandidates(
+    matches: PushCandidate[],
+    token: string,
+  ): Promise<PushCandidate[]> {
+    if (matches.length === 1) {
+      return matches;
+    }
+
+    if (!this.prompts.selectOne) {
+      const available = matches
+        .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+        .join('\n');
+      throw new AgentPmError(
+        `Multiple pushable entries matched "${token}". Re-run in interactive mode or use a more specific path.\n\nMatches:\n${available}`,
+      );
+    }
+
+    const selected = await this.prompts.selectOne(
+      `Multiple entries match "${token}". Choose one to push:`,
+      matches.map((candidate) => ({
+        label: candidate.name,
+        value: candidate,
+        description: `${candidate.adapter}  ${candidate.destinationRelativePath}`,
+      })),
+    );
+    return [selected];
+  }
+
   private async pushToGit(
-    skillPath: string,
     locator: string,
+    entries: PushCandidate[],
     message?: string,
     dryRun?: boolean,
   ): Promise<PushResult> {
     const warnings: string[] = [];
+    const pushedEntries = entries.map((entry) => entry.destinationRelativePath);
     if (dryRun) {
       return {
         success: true,
         targetLocator: locator,
         warnings: ['Dry run: would push to ' + locator],
+        entries: pushedEntries,
       };
     }
+    let tempRoot: string | null = null;
+    try {
+      tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agentpm-push-'));
+      const releasePath = path.join(tempRoot, 'checkout');
+      await runGitCommand(['clone', locator, releasePath], {
+        env: this.env,
+      });
 
-    const isGitRepo = await pathExists(path.join(skillPath, '.git'));
-
-    if (isGitRepo) {
-      try {
-        const remoteName = `target-${stableHash(locator).slice(0, 8)}`;
-        await execFileAsync('git', ['remote', 'add', remoteName, locator], {
-          cwd: skillPath,
-        }).catch(async () => {
-          await execFileAsync('git', ['remote', 'set-url', remoteName, locator], {
-            cwd: skillPath,
-          });
-        });
-
-        if (message) {
-          await execFileAsync('git', ['add', '.'], { cwd: skillPath });
-          await execFileAsync('git', ['commit', '-m', message], {
-            cwd: skillPath,
-          }).catch(() => {
-            warnings.push('No changes to commit or commit failed.');
-          });
-        }
-
-        const branchResult = await execFileAsync(
-          'git',
-          ['rev-parse', '--abbrev-ref', 'HEAD'],
-          { cwd: skillPath },
+      for (const entry of entries) {
+        const destinationRoot = path.join(
+          releasePath,
+          entry.destinationRelativePath,
         );
-        const branch = branchResult.stdout.trim();
+        await fs.rm(destinationRoot, { recursive: true, force: true });
 
-        await execFileAsync('git', ['push', remoteName, branch], {
-          cwd: skillPath,
-        });
-
-        const revisionResult = await execFileAsync('git', ['rev-parse', 'HEAD'], {
-          cwd: skillPath,
-        });
-
-        return {
-          success: true,
-          targetLocator: locator,
-          revision: revisionResult.stdout.trim(),
-          warnings,
-        };
-      } catch (error) {
-        throw new AgentPmError(
-          `Git push failed: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-    } else {
-      let tempRelease: any = null;
-      try {
-        tempRelease = await createTemporaryGitRelease(locator, []);
-        const { releasePath } = tempRelease;
-
-        const files = await walkFiles(skillPath);
+        const files = await walkFiles(entry.sourcePath);
         for (const file of files) {
-          const relative = path.relative(skillPath, file);
-          const destination = path.join(releasePath, relative);
+          const relative = path.relative(entry.sourcePath, file);
+          const destination = path.join(destinationRoot, relative);
           await fs.mkdir(path.dirname(destination), { recursive: true });
           await fs.copyFile(file, destination);
         }
+      }
 
-        const { simpleGit } = await import('simple-git');
-        const repo = simpleGit(releasePath);
-        await repo.add('.');
-        
-        const commitMessage = message ?? 'Update skill from AgentPM';
-        await repo.commit(commitMessage).catch(() => {
-          warnings.push('No changes to commit or commit failed.');
-        });
+      const { simpleGit } = await import('simple-git');
+      const repo = simpleGit(releasePath);
+      await repo.add('.');
 
-        const branch = (await repo.revparse(['--abbrev-ref', 'HEAD'])).trim();
-        await repo.push('origin', branch);
+      const commitMessage =
+        message ??
+        `Update ${entries.length === 1 ? entries[0]!.name : `${entries.length} skills`} from AgentPM`;
+      await repo.commit(commitMessage).catch(() => {
+        warnings.push('No changes to commit or commit failed.');
+      });
 
-        const revision = (await repo.revparse(['HEAD'])).trim();
-
-        return {
-          success: true,
-          targetLocator: locator,
-          revision,
-          warnings,
-        };
-      } catch (error) {
+      const revision = (await repo.revparse(['HEAD']).catch(() => '')).trim();
+      if (!revision) {
         throw new AgentPmError(
-          `Git push fallback failed: ${error instanceof Error ? error.message : String(error)}`,
+          'No commit is available to push. Add files or create a commit before pushing.',
         );
-      } finally {
-        if (tempRelease) {
-          await cleanupTemporaryRelease(tempRelease.releasePath).catch(() => {});
-        }
+      }
+
+      await runGitCommand(['push', 'origin', 'HEAD'], {
+        cwd: releasePath,
+        env: this.env,
+      });
+
+      return {
+        success: true,
+        targetLocator: locator,
+        revision,
+        warnings,
+        entries: pushedEntries,
+      };
+    } catch (error) {
+      throw new AgentPmError(
+        `Git push fallback failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      if (tempRoot) {
+        await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
       }
     }
   }
@@ -1189,7 +1315,7 @@ export class AgentPmService {
 
       if (source.kind === 'git') {
         try {
-          await resolveGitRevision(source.locator);
+          await resolveGitRevision(source.locator, undefined, this.env);
         } catch (error) {
           issues.push({
             severity: 'error',
@@ -1822,7 +1948,9 @@ export class AgentPmService {
         contentKind: localGit ? 'git' : 'local',
         contentLocator: normalized,
         contentRef: null,
-        revision: localGit ? await resolveGitRevision(normalized) : null,
+        revision: localGit
+          ? await resolveGitRevision(normalized, undefined, this.env)
+          : null,
         repoRoot: normalized,
         cacheKey: null,
       };
@@ -1831,6 +1959,8 @@ export class AgentPmService {
     const release = await createTemporaryGitRelease(
       locator,
       [], // Empty array = FULL CHECKOUT! This guarantees that deep indexing discovers all skills in any arbitrary directory!
+      undefined,
+      this.env,
     );
     const report = await inspectRepository(release.releasePath, locator, 'git');
     return {
@@ -2072,6 +2202,7 @@ export class AgentPmService {
       ]),
       ref: requestedRef,
       revision: overrides.revision ?? null,
+      env: this.env,
     });
 
     let report = await inspectRepository(
@@ -2080,7 +2211,7 @@ export class AgentPmService {
       source.kind === 'local' ? 'local' : 'git',
     );
 
-    let entries = listInstallableEntries(report);
+        const entries = listInstallableEntries(report);
     if (entries.length === 0) {
       // Fallback: if sparse checkout yielded no entries, do a full checkout!
       await fs.rm(cacheBasePath, { recursive: true, force: true });
@@ -2090,6 +2221,7 @@ export class AgentPmService {
         sparsePaths: [], // Empty array = FULL CHECKOUT!
         ref: requestedRef,
         revision: overrides.revision ?? null,
+        env: this.env,
       });
       report = await inspectRepository(
         release.releasePath,
@@ -2124,6 +2256,7 @@ export class AgentPmService {
       sparsePaths: normalizeSparsePaths([install.sourceRelativePath]),
       ref: install.contentRef,
       revision,
+      env: this.env,
     });
     return {
       report: await inspectRepository(

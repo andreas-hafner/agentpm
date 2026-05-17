@@ -118,15 +118,18 @@ agentpm sync
 agentpm update
 agentpm diff
 agentpm doctor
-agentpm push ./skills/my-skill --to git@github.com:my-org/my-skills.git
+agentpm push skill-a --to git@github.com:my-org/my-skills.git
+agentpm push --all --to git@github.com:my-org/my-skills.git
 ```
 
 ## Git Push Flows
 
-AgentPM includes a robust dual-flow capability for pushing changes back to remote repositories:
+`agentpm push` is a skill push command, not a raw repository mirror.
 
-1. **Within a Git Repository**: If the target folder is already a initialized Git repository, AgentPM configures remote mapping, stages, and commits changes locally before pushing the active branch.
-2. **From Non-Git Folders**: If the target folder is a plain local directory (not initialized with Git), AgentPM automatically spins up a clean, isolated temporary checkout from the remote, copies all modified workspace files (automatically excluding ignored files and build artifacts), performs a safe commit, and pushes the changes back to the origin branch cleanly.
+- AgentPM detects pushable local entries from native layouts such as `.agents/skills`, `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, plain `skills/`, and `subagents/`.
+- If you omit the name or path in a TTY session, AgentPM shows an interactive selector. Use Space to toggle, `a` to select all, `n` to select none, and Enter to confirm.
+- Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
+- The target repository can be empty. AgentPM clones it, copies the selected entries into place, commits, and pushes `HEAD`.
 
 ## Docs
 

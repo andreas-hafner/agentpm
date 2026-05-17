@@ -371,7 +371,8 @@ targetCmd
     if (projectTargets.length > 0) {
       console.log('Project Targets (agentpm.yaml):');
       for (const target of projectTargets) {
-        console.log(`${target.default ? '*' : ' '} ${target.id.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
+        const targetId = target.id ?? '(unnamed)';
+        console.log(`${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
       }
       console.log('');
     }
@@ -379,7 +380,8 @@ targetCmd
     if (globalTargets.length > 0) {
       console.log('Global Targets (config.yaml):');
       for (const target of globalTargets) {
-        console.log(`${target.default ? '*' : ' '} ${target.id.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
+        const targetId = target.id ?? '(unnamed)';
+        console.log(`${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
       }
     }
   });
@@ -509,25 +511,38 @@ program
 
 program
   .command('push')
-  .argument('[path]', 'Path to the skill or agent folder', '.')
+  .argument(
+    '[pathOrName]',
+    'Skill name, relative path, or folder to push. Omit to choose interactively.',
+  )
   .option('--to <target>', 'Target id or locator')
   .option('-m, --message <message>', 'Commit message if changes exist')
+  .option('--all', 'Push all detected local skills or agents')
   .option('--dry-run', 'Show what would be pushed without doing it')
   .action(
     async (
-      pathArg: string,
-      flags: { to?: string; message?: string; dryRun?: boolean },
+      pathArg: string | undefined,
+      flags: {
+        to?: string;
+        message?: string;
+        all?: boolean;
+        dryRun?: boolean;
+      },
     ) => {
       const result = await withService((service) =>
         service.push({
           path: pathArg,
           target: flags.to,
           message: flags.message,
+          all: flags.all,
           dryRun: flags.dryRun,
         }),
       );
       if (result.success) {
         console.log(`\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`);
+        for (const entry of result.entries) {
+          console.log(`  ${symbols.bullet} ${entry}`);
+        }
         if (result.revision) {
           console.log(`  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`);
         }

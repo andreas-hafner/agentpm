@@ -289,6 +289,7 @@ export interface PushOptions {
   target?: string | undefined;
   message?: string | undefined;
   dryRun?: boolean | undefined;
+  all?: boolean | undefined;
 }
 
 export interface PushResult {
@@ -296,6 +297,7 @@ export interface PushResult {
   targetLocator: string;
   revision?: string | undefined;
   warnings: string[];
+  entries: string[];
 }
 
 export interface DoctorIssue {
@@ -321,6 +323,7 @@ export interface SelectOption<T> {
 
 export interface PromptApi {
   selectOne?<T>(message: string, options: SelectOption<T>[]): Promise<T>;
+  selectMany?<T>(message: string, options: SelectOption<T>[]): Promise<T[]>;
   confirm?(message: string, details?: string[]): Promise<boolean>;
 }
 
