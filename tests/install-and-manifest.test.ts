@@ -7,6 +7,21 @@ import { AgentPmService } from '@agentpm/core';
 
 import { copyDir, git, initFixtureGitRepo, makeTempDir, writeFile } from './helpers';
 
+async function writeGitGlobalIgnoreConfig(
+  rootDir: string,
+  patterns: string[],
+): Promise<string> {
+  const ignorePath = path.join(rootDir, 'global-ignore');
+  const configPath = path.join(rootDir, 'gitconfig');
+  await fs.writeFile(ignorePath, `${patterns.join('\n')}\n`, 'utf8');
+  await fs.writeFile(
+    configPath,
+    `[core]\n    excludesfile = ${ignorePath.replace(/\\/g, '/')}\n`,
+    'utf8',
+  );
+  return configPath;
+}
+
 describe('install and manifest flows', () => {
   test('installs a local generic skill into project scope and writes a manifest', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -437,6 +452,9 @@ describe('install and manifest flows', () => {
     const remoteDir = await makeTempDir('agentpm-push-remote-');
     const remoteRepo = path.join(remoteDir, 'skills.git');
     const verifyDir = path.join(remoteDir, 'verify');
+    const gitGlobalConfig = await writeGitGlobalIgnoreConfig(remoteDir, [
+      '.agents/',
+    ]);
 
     git(remoteDir, 'init', '--bare', remoteRepo);
     await writeFile(
@@ -455,6 +473,7 @@ describe('install and manifest flows', () => {
         GIT_AUTHOR_EMAIL: 'tests@example.com',
         GIT_COMMITTER_NAME: 'AgentPM Tests',
         GIT_COMMITTER_EMAIL: 'tests@example.com',
+        GIT_CONFIG_GLOBAL: gitGlobalConfig,
       },
     });
     try {
@@ -486,6 +505,10 @@ describe('install and manifest flows', () => {
     const remoteDir = await makeTempDir('agentpm-push-remote-');
     const remoteRepo = path.join(remoteDir, 'skills.git');
     const verifyDir = path.join(remoteDir, 'verify');
+    const gitGlobalConfig = await writeGitGlobalIgnoreConfig(remoteDir, [
+      '.agents/',
+      '.codex/',
+    ]);
 
     git(remoteDir, 'init', '--bare', remoteRepo);
     await writeFile(
@@ -504,6 +527,7 @@ describe('install and manifest flows', () => {
         GIT_AUTHOR_EMAIL: 'tests@example.com',
         GIT_COMMITTER_NAME: 'AgentPM Tests',
         GIT_COMMITTER_EMAIL: 'tests@example.com',
+        GIT_CONFIG_GLOBAL: gitGlobalConfig,
       },
       prompts: {
         selectMany: (_message, options) => Promise.resolve([

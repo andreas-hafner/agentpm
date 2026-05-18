@@ -1166,10 +1166,16 @@ export class AgentPmService {
         }
       }
 
-      await runGitCommand(['add', '.'], {
-        cwd: releasePath,
-        env: this.env,
-      });
+      const destinationPathspecs = entries.map((entry) =>
+        toPosixPath(entry.destinationRelativePath),
+      );
+      await runGitCommand(
+        ['add', '-A', '--force', '--', ...destinationPathspecs],
+        {
+          cwd: releasePath,
+          env: this.env,
+        },
+      );
 
       const commitMessage =
         message ??

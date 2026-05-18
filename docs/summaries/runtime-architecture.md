@@ -39,7 +39,7 @@ Summarizes the runtime package split and the main command execution flow.
 - Source addition indexes installable entries immediately, and `agentpm refresh` / `agentpm update --refresh` rebuild source indexes later.
 - Adapter detection scans supported roots for marker files, so nested collections inside `skills/` can still be indexed and installed.
 - Adapter detection also recognizes `.codex.cloud/skills` and reports install scripts as risks without executing them.
-- Git-backed remote operations that may require SSH or passphrase prompts run through an interactive runner, and `agentpm push` now discovers local native entries, preserves their target-relative layout in the destination repo, supports interactive multi-select, and handles empty remotes without resolving `HEAD` first.
+- Git-backed remote operations that may require SSH or passphrase prompts run through an interactive runner, and `agentpm push` now discovers local native entries, preserves their target-relative layout in the destination repo, force-stages selected paths even when native dot-directories match Git ignore rules, supports interactive multi-select, and handles empty remotes without resolving `HEAD` first.
 - Git cache directories use shortened hashed paths under `cache/repos/` so sparse clones stay within Windows path-length limits.
 - Registry sources include the skills.sh API (auth required) and the SkillsHub API (skillshub.wtf, no auth, 1000-entry cap).
 - Private HTTP registry indexes can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
