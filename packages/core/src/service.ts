@@ -52,6 +52,7 @@ import {
   slugify,
   toPosixPath,
   type CacheRepoRecord,
+  type CacheCleanOptions,
   type CacheCleanResult,
   type CatalogEntryRecord,
   type ContentKind,
@@ -630,7 +631,7 @@ export class AgentPmService {
     return previews;
   }
 
-  async cleanCache(): Promise<CacheCleanResult> {
+  async cleanCache(options: CacheCleanOptions = {}): Promise<CacheCleanResult> {
     await this.initialize();
     await ensureDir(this.paths.cacheDir);
     const installedCacheKeys = new Set(
@@ -645,8 +646,10 @@ export class AgentPmService {
       if (installedCacheKeys.has(cacheRepo.cacheKey)) {
         continue;
       }
-      await fs.rm(cacheRepo.basePath, { recursive: true, force: true });
-      this.db.deleteCacheRepo(cacheRepo.cacheKey);
+      if (!options.dryRun) {
+        await fs.rm(cacheRepo.basePath, { recursive: true, force: true });
+        this.db.deleteCacheRepo(cacheRepo.cacheKey);
+      }
       removedPaths.push(cacheRepo.basePath);
     }
 
@@ -667,13 +670,16 @@ export class AgentPmService {
       if (knownPaths.has(path.resolve(entryPath))) {
         continue;
       }
-      await fs.rm(entryPath, { recursive: true, force: true });
+      if (!options.dryRun) {
+        await fs.rm(entryPath, { recursive: true, force: true });
+      }
       removedPaths.push(entryPath);
     }
 
     return {
       removedEntries: removedPaths.length,
       removedPaths,
+      dryRun: Boolean(options.dryRun),
     };
   }
 
@@ -849,7 +855,12 @@ export class AgentPmService {
     return installs;
   }
 
-  async addTarget(id: string, locator: string, global = false): Promise<void> {
+  async addTarget(
+    id: string,
+    locator: string,
+    global = false,
+    defaultTarget = false,
+  ): Promise<void> {
     await this.initialize();
     const sourceKind = await this.classifySource(locator);
     const pushKind = sourceKind === 'local' ? ('git' as const) : sourceKind;
@@ -861,6 +872,7 @@ export class AgentPmService {
           id,
           locator,
           kind: pushKind,
+          default: defaultTarget,
         },
         this.env,
       );
@@ -870,7 +882,19 @@ export class AgentPmService {
         id,
         locator,
         kind: pushKind,
+        default: defaultTarget,
       });
+    }
+  }
+
+  async setDefaultTarget(id: string, global = false): Promise<void> {
+    await this.initialize();
+    if (global) {
+      const { setDefaultGlobalTarget } = await import('@agentpm/config');
+      await setDefaultGlobalTarget(this.cwd, id, this.env);
+    } else {
+      const { setDefaultProjectTarget } = await import('@agentpm/config');
+      await setDefaultProjectTarget(this.cwd, id);
     }
   }
 
@@ -923,10 +947,10 @@ export class AgentPmService {
     const { loadGlobalConfig } = await import('@agentpm/config');
     const globalConfig = await loadGlobalConfig(this.cwd, this.env);
 
-    let targets = config?.manifest.targets ?? [];
-    if (targets.length === 0) {
-      targets = globalConfig.targets ?? [];
-    }
+    const useProjectTargets = (config?.manifest.targets ?? []).length > 0;
+    const targets = useProjectTargets
+      ? (config?.manifest.targets ?? [])
+      : (globalConfig.targets ?? []);
 
     if (token) {
       const match = targets.find((t) => t.id === token || t.locator === token);
@@ -948,8 +972,42 @@ export class AgentPmService {
       return targets[0]!;
     }
 
+    if (targets.length > 1 && this.prompts.selectOne) {
+      const selected = await this.prompts.selectOne(
+        'Choose a push target:',
+        targets.map((target) => ({
+          label: target.id ?? target.locator,
+          value: target,
+          description: `${target.kind ?? 'git'}  ${target.locator}`,
+        })),
+      );
+      if (selected.id && this.prompts.confirm) {
+        const shouldSaveDefault = await this.prompts.confirm(
+          `Save "${selected.id}" as the default push target?`,
+          [
+            useProjectTargets
+              ? 'The default will be written to agentpm.yaml.'
+              : 'The default will be written to global AgentPM config.',
+          ],
+        );
+        if (shouldSaveDefault) {
+          await this.setDefaultTarget(selected.id, !useProjectTargets);
+        }
+      }
+      return selected;
+    }
+
+    const available =
+      targets.length > 0
+        ? targets
+            .map(
+              (target) =>
+                `  - ${target.id ?? target.locator} (${target.kind ?? 'git'}) ${target.locator}`,
+            )
+            .join('\n')
+        : '  - none configured';
     throw new AgentPmError(
-      'No push target specified and no default target configured in agentpm.yaml or global config.',
+      `No push target specified and no default target configured in agentpm.yaml or global config.\n\nAvailable targets:\n${available}\n\nUse --to <target>, or set one with: agentpm target default <id>${useProjectTargets ? '' : ' --global'}`,
     );
   }
 
@@ -958,21 +1016,15 @@ export class AgentPmService {
   ): Promise<PushCandidate[]> {
     const report = await inspectRepository(rootPath, rootPath, 'local');
     const entries = listInstallableEntries(report);
-    const candidates = await Promise.all(
-      entries.map(async (entry) => {
-        const mapping = await getAdapter(entry.adapter).install(
-          entry,
-          rootPath,
-        );
-        return {
-          name: mapping.name,
-          adapter: mapping.adapter,
-          sourcePath: path.join(rootPath, mapping.sourceRelativePath),
-          sourceRelativePath: mapping.sourceRelativePath,
-          destinationRelativePath: mapping.targetRelativePath,
-        } satisfies PushCandidate;
-      }),
-    );
+    const candidates = entries.map((entry) => {
+      return {
+        name: entry.name,
+        adapter: entry.adapter,
+        sourcePath: path.join(rootPath, entry.relativePath),
+        sourceRelativePath: entry.relativePath,
+        destinationRelativePath: entry.relativePath,
+      } satisfies PushCandidate;
+    });
 
     const installedCandidates = this.db
       .listInstalls()
@@ -1483,7 +1535,8 @@ export class AgentPmService {
     }
 
     for (const install of this.db.listInstalls()) {
-      if (!(await pathExists(install.targetPath))) {
+      const targetMissing = !(await pathExists(install.targetPath));
+      if (targetMissing) {
         issues.push({
           severity: 'error',
           code: 'install-missing',
@@ -1505,6 +1558,7 @@ export class AgentPmService {
 
       if (
         install.cacheKey &&
+        !targetMissing &&
         !(await pathExists(this.cacheBasePath(install.cacheKey)))
       ) {
         issues.push({
@@ -1574,6 +1628,19 @@ export class AgentPmService {
     const actions: DoctorFixAction[] = [];
 
     for (const issue of doctorIssues) {
+      if (issue.code === 'install-missing' && issue.installId) {
+        const install = this.db.getInstall(issue.installId);
+        if (!install) {
+          continue;
+        }
+        actions.push({
+          code: 'remove-install-record',
+          installId: install.id,
+          description: `Removing stale install record: ${install.name} (${install.targetPath})`,
+        });
+        continue;
+      }
+
       if (
         !issue.sourceId ||
         (issue.code !== 'source-missing' &&
@@ -1617,6 +1684,14 @@ export class AgentPmService {
           );
         }
         this.db.deleteSource(source.id);
+        results.push({ action, applied: true });
+      } else if (action.code === 'remove-install-record') {
+        const install = this.db.getInstall(action.installId);
+        if (!install) {
+          results.push({ action, applied: false });
+          continue;
+        }
+        this.db.removeInstall(install.id);
         results.push({ action, applied: true });
       }
     }

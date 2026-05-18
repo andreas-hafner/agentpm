@@ -36,13 +36,14 @@ Summarizes the runtime package split and the main command execution flow.
 - `target` is the public project-config selector for native layouts (`codex`, `claude`, or `generic`); `adapter` remains a compatibility alias.
 - `AgentPmService.resolveRuntimeContext()` builds global/project/temporary skill layers without creating project runtime folders.
 - Project install/sync writes generated target paths to `.git/info/exclude` when a scope root is a Git repository.
-- Source addition indexes installable entries immediately, and `agentpm refresh` / `agentpm update --refresh` rebuild source indexes later.
+- Source addition indexes installable entries immediately, and `agentpm refresh`, `agentpm search --refresh`, or `agentpm update --refresh` rebuild source indexes later.
 - Adapter detection scans supported roots for marker files, so nested collections inside `skills/` can still be indexed and installed.
+- Generic installs from plain `skills/` sources now target `.agents/skills/`; already-native `.agents/skills/` and `subagents/` roots are preserved.
 - Adapter detection also recognizes `.codex.cloud/skills` and reports install scripts as risks without executing them.
-- Git-backed remote operations that may require SSH or passphrase prompts run through an interactive runner, and `agentpm push` now discovers local native entries, preserves their target-relative layout in the destination repo, force-stages selected paths even when native dot-directories match Git ignore rules, supports interactive multi-select, and handles empty remotes without resolving `HEAD` first.
+- Git-backed remote operations that may require SSH or passphrase prompts run through an interactive runner, and `agentpm push` now discovers local native entries, preserves their target-relative layout in the destination repo, force-stages selected paths even when native dot-directories match Git ignore rules, supports interactive multi-select and push target default selection, and handles empty remotes without resolving `HEAD` first.
 - Git cache directories use shortened hashed paths under `cache/repos/` so sparse clones stay within Windows path-length limits.
 - Registry sources include the skills.sh API (auth required) and the SkillsHub API (skillshub.wtf, no auth, 1000-entry cap).
 - Private HTTP registry indexes can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 - On first start (no sources in DB, TTY available), the CLI prompts to add SkillsHub as the default registry.
-- `agentpm cache clean` removes unused repository caches without clearing source catalog indexes.
-- `agentpm doctor` validates project config resolution, configured sources/skills, broken installs, cache state, local source paths, permissions, and tracked generated targets. `agentpm doctor --fix` plans and confirms safe removal of unreachable unused sources.
+- `agentpm cache clean` removes unused repository caches without clearing active install caches or source catalog indexes, and `--dry-run` previews removals.
+- `agentpm doctor` validates project config resolution, configured sources/skills, broken installs, cache state, local source paths, permissions, and tracked generated targets. `agentpm doctor --fix` plans and confirms safe removal of unreachable unused sources and stale install records.

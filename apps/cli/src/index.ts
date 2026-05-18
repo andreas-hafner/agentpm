@@ -289,13 +289,18 @@ function printCacheCleanResult(
   result: Awaited<ReturnType<AgentPmService['cleanCache']>>,
 ): void {
   if (result.removedEntries === 0) {
-    console.log(`\n${symbols.success} Cache is already clean.\n`);
+    console.log(
+      `\n${symbols.success} Cache is already clean. Active install caches and the searchable source index were preserved.\n`,
+    );
     return;
   }
 
-  section('Cache Clean');
+  section(result.dryRun ? 'Cache Clean Preview' : 'Cache Clean');
   console.log(
-    `  ${symbols.success} Removed ${style.bold(result.removedEntries.toString())} unused cache item(s).`,
+    `  ${symbols.success} ${result.dryRun ? 'Would remove' : 'Removed'} ${style.bold(result.removedEntries.toString())} unused Git checkout cache item(s).`,
+  );
+  console.log(
+    `  ${symbols.bullet} Preserved active install caches and the searchable source index.`,
   );
   for (const removedPath of result.removedPaths) {
     console.log(`    ${style.gray('-')} ${removedPath}`);
@@ -305,15 +310,59 @@ function printCacheCleanResult(
 
 function printDoctorFixes(
   actions: Awaited<ReturnType<AgentPmService['planDoctorFixes']>>,
+  issues: Awaited<ReturnType<AgentPmService['doctor']>> = [],
 ): void {
   if (actions.length === 0) {
     console.log(`\n${symbols.info} No safe automatic fixes are available.\n`);
+    const unsupported = issues.filter((issue) => issue.severity === 'error');
+    for (const issue of unsupported) {
+      console.log(
+        `  ${symbols.bullet} ${issue.code}: no automated fix is available; ${issue.remedy}`,
+      );
+    }
+    if (unsupported.length > 0) {
+      console.log('');
+    }
     return;
   }
 
   section('Planned Fixes');
   for (const action of actions) {
     console.log(`  ${symbols.warning} ${style.yellow(action.description)}`);
+  }
+  const fixedInstallIds = new Set(
+    actions.flatMap((action) =>
+      action.code === 'remove-install-record' ? [action.installId] : [],
+    ),
+  );
+  const fixedSourceIds = new Set(
+    actions.flatMap((action) =>
+      action.code === 'remove-source' ? [action.sourceId] : [],
+    ),
+  );
+  const unsupported = issues.filter((issue) => {
+    if (issue.severity !== 'error') {
+      return false;
+    }
+    if (issue.installId && fixedInstallIds.has(issue.installId)) {
+      return false;
+    }
+    if (
+      issue.sourceId &&
+      fixedSourceIds.has(issue.sourceId) &&
+      (issue.code === 'source-missing' || issue.code === 'source-unavailable')
+    ) {
+      return false;
+    }
+    return true;
+  });
+  if (unsupported.length > 0) {
+    section('Manual Review');
+    for (const issue of unsupported) {
+      console.log(
+        `  ${symbols.bullet} ${issue.code}: no automated fix is available; ${issue.remedy}`,
+      );
+    }
   }
   console.log('');
 }
@@ -358,13 +407,28 @@ async function withService<T>(
 }
 
 const program = new Command();
+const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.3.0')
+  .version('0.4.0')
   .exitOverride()
   .showHelpAfterError(false)
-  .addHelpText('beforeAll', brandBlock());
+  .addHelpText('beforeAll', brandBlock())
+  .addHelpText(
+    'afterAll',
+    `
+Examples:
+  agentpm source add git@github.com:company/skills.git
+  agentpm search pdf --refresh
+  agentpm sync
+  agentpm update --refresh
+  agentpm doctor --fix
+  agentpm cache clean --dry-run
+  agentpm target add production git@github.com:company/skills.git --default
+  agentpm push --all
+`,
+  );
 
 const source = program
   .command('source')
@@ -413,19 +477,37 @@ targetCmd
   .argument('<id>', 'Target ID')
   .argument('<locator>', 'Target locator (Git URL or registry path)')
   .option('--global', 'Add target to global config')
-  .action(async (id: string, locator: string, flags: { global?: boolean }) => {
-    await withService((service) =>
-      service.addTarget(id, locator, flags.global),
+  .option('--default', 'Make this the default push target')
+  .action(
+    async (
+      id: string,
+      locator: string,
+      flags: { global?: boolean; default?: boolean },
+    ) => {
+      await withService((service) =>
+        service.addTarget(id, locator, flags.global, flags.default),
+      );
+      if (flags.global) {
+        console.log(
+          `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
+        );
+      } else {
+        console.log(
+          `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}${flags.default ? ' as default' : ''}\n`,
+        );
+      }
+    },
+  );
+
+targetCmd
+  .command('default')
+  .argument('<id>', 'Target ID')
+  .option('--global', 'Set the default in global config')
+  .action(async (id: string, flags: { global?: boolean }) => {
+    await withService((service) => service.setDefaultTarget(id, flags.global));
+    console.log(
+      `\n${symbols.success} ${style.bold('Default target')} ${style.cyan(id)} saved to ${flags.global ? 'global config' : 'agentpm.yaml'}\n`,
     );
-    if (flags.global) {
-      console.log(
-        `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config\n`,
-      );
-    } else {
-      console.log(
-        `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}\n`,
-      );
-    }
   });
 
 targetCmd
@@ -507,12 +589,24 @@ program
 program
   .command('search')
   .argument('<query>', 'Query text')
-  .action(async (query: string) => {
-    const results = await withService((service) =>
-      Promise.resolve(service.search(query)),
-    );
+  .option('--refresh', 'Refresh configured source indexes before searching')
+  .action(async (query: string, flags: { refresh?: boolean }) => {
+    const { results, sourceCount } = await withService(async (service) => {
+      if (flags.refresh) {
+        printRefreshResults(await service.refreshSources());
+      }
+      return {
+        results: service.search(query),
+        sourceCount: service.listSources().length,
+      };
+    });
     if (results.length === 0) {
       console.log('No matches found.');
+      if (sourceCount > 0 && !flags.refresh) {
+        console.log(
+          'Indexes may be stale; run `agentpm refresh` or `agentpm search --refresh`.',
+        );
+      }
       return;
     }
     for (const result of results) {
@@ -624,6 +718,15 @@ program
           yes: Boolean(flags.yes),
         } satisfies UpdateOptions);
         printUpdates(applied);
+        const updatedCount = applied.filter(
+          (preview) =>
+            preview.changed &&
+            preview.nextLinkTarget &&
+            !preview.warnings.includes('Skipped by user.'),
+        ).length;
+        console.log(
+          `\n${symbols.success} ${style.bold('Update complete')} ${style.gray(`(${updatedCount} item(s) updated)`)}\n`,
+        );
       });
     },
   );
@@ -653,8 +756,19 @@ program
 
 const cacheCmd = program.command('cache').description('Manage AgentPM cache');
 
-cacheCmd.command('clean').action(async () => {
-  const result = await withService((service) => service.cleanCache());
+const cacheCleanCmd = cacheCmd
+  .command('clean')
+  .description(
+    'Remove unused Git checkout caches while preserving active installs and the search index',
+  )
+  .option('--dry-run', 'Show unused cache paths without deleting them');
+
+cacheCleanCmd.action(async () => {
+  const dryRun = Boolean(
+    cacheCleanCmd.opts<{ dryRun?: boolean }>().dryRun ||
+      rawCliArgs.includes('--dry-run'),
+  );
+  const result = await withService((service) => service.cleanCache({ dryRun }));
   printCacheCleanResult(result);
 });
 
@@ -787,7 +901,7 @@ program
       }
 
       const actions = await service.planDoctorFixes(issues);
-      printDoctorFixes(actions);
+      printDoctorFixes(actions, issues);
       if (actions.length === 0) {
         return;
       }

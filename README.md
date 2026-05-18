@@ -12,10 +12,11 @@ The publishable MVP centers on a committed `agentpm.yaml`: projects declare the 
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
 - Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
+- Search hints when configured source indexes may be stale, with `agentpm search --refresh` for one-step refresh and search
 - Runtime context resolution across global, project, and temporary layers without writing project runtime folders
 - Diagnostics for malformed config, unavailable sources, missing generated targets, broken links, and tracked generated artifacts
 - Interactive update previews for Git-backed installs, layout migration warnings, and local source drift checks
-- Structured cache cleanup with `agentpm cache clean` while preserving the local search index
+- Structured cache cleanup with `agentpm cache clean --dry-run` while preserving active install caches and the local search index
 
 ## Getting started
 
@@ -117,15 +118,16 @@ The smoke test builds the workspace, runs the packaged `agentpm` bin with an iso
 ```bash
 agentpm source add ./examples/repos/codex-sample
 agentpm inspect ./examples/repos/codex-sample --skill audio-mastering --target codex
-agentpm search audio
+agentpm search audio --refresh
 agentpm install audio-mastering --project --target codex
 agentpm resolve --temp release-helper
 agentpm sync
 agentpm refresh
 agentpm update --refresh
 agentpm diff
-agentpm cache clean
+agentpm cache clean --dry-run
 agentpm doctor --fix
+agentpm target add production git@github.com:my-org/my-skills.git --default
 agentpm push skill-a --to git@github.com:my-org/my-skills.git
 agentpm push --all --to git@github.com:my-org/my-skills.git
 ```
@@ -136,6 +138,7 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 
 - AgentPM detects pushable local entries from native layouts such as `.agents/skills`, `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, plain `skills/`, and `subagents/`.
 - If you omit the name or path in a TTY session, AgentPM shows an interactive selector. Use Space to toggle, `a` to select all, `n` to select none, and Enter to confirm.
+- If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
 - Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
 - The target repository can be empty. AgentPM clones it, copies the selected entries into place, commits, and pushes `HEAD`.
 

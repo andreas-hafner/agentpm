@@ -6,7 +6,7 @@ AgentPM adapters translate repository layouts into installable native targets.
 
 - `codex`: detects `.codex/skills/*` and `.codex.cloud/skills/*`, then installs back into the detected native root.
 - `claude`: detects `.claude/agents/*` and installs back into `.claude/agents`.
-- `generic`: detects `skills/*`, `.agents/skills/*`, and `subagents/*` and preserves those roots.
+- `generic`: detects `skills/*`, `.agents/skills/*`, and `subagents/*`; plain `skills/*` sources install into `.agents/skills/*`, while already-native `.agents/skills/*` and `subagents/*` roots are preserved.
 
 In `agentpm.yaml`, use `target` to select one of these native layouts:
 

@@ -332,16 +332,27 @@ export interface RefreshSourceResult {
   indexedEntries: number;
 }
 
+export interface CacheCleanOptions {
+  dryRun?: boolean | undefined;
+}
+
 export interface CacheCleanResult {
   removedEntries: number;
   removedPaths: string[];
+  dryRun: boolean;
 }
 
-export interface DoctorFixAction {
-  code: 'remove-source';
-  sourceId: string;
-  description: string;
-}
+export type DoctorFixAction =
+  | {
+      code: 'remove-source';
+      sourceId: string;
+      description: string;
+    }
+  | {
+      code: 'remove-install-record';
+      installId: string;
+      description: string;
+    };
 
 export interface DoctorFixResult {
   action: DoctorFixAction;

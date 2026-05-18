@@ -22,4 +22,4 @@ Shared types, pure utility functions, and cross-package constants. No runtime de
 - `SourceKind` is `'git' | 'local' | 'registry'`. API-backed registries (skills.sh, skillshub.wtf) are loaded via dynamic paginators in `@agentpm/registry`.
 - Project and manifest skill specs include `target` as the preferred runtime-layout selector; `adapter` remains a compatibility alias.
 - Registry entries include preferred `target` metadata plus legacy `adapterHint`.
-- Shared result types cover source refresh, cache cleanup, and doctor fix actions/results for CLI and core boundaries.
+- Shared result types cover source refresh, cache cleanup dry-runs, and doctor fix actions/results for removing unused sources or stale install records across CLI and core boundaries.

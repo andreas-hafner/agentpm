@@ -8,6 +8,26 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.4.0] - 2026-05-18
+
+### Added
+
+- `agentpm search --refresh` to refresh configured source indexes before searching, plus stale-index guidance when normal search returns no matches.
+- Push target default management with `agentpm target add --default`, `agentpm target default`, and interactive default selection during `agentpm push`.
+- `agentpm cache clean --dry-run` to preview unused Git checkout cache removals.
+- `agentpm doctor --fix` can now remove stale install records when generated skill folders were deleted outside AgentPM.
+
+### Changed
+
+- Plain `skills/<name>` generic sources now install into `.agents/skills/<name>` so synced project skills are immediately usable by `.agents` runtimes.
+- Cache, help, doctor, and update CLI output now explains outcomes and next actions more clearly.
+- Workspace package versions were aligned to `0.4.0`.
+
+### Fixed
+
+- `agentpm doctor` no longer reports a duplicate missing-cache error for an install whose target path is already missing.
+- `agentpm update` now prints an explicit success summary after applying changes.
+
 ## [0.3.0] - 2026-05-18
 
 ### Added

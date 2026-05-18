@@ -492,16 +492,55 @@ export async function addTargetToProjectConfig(
   }
 
   const manifest = loaded.manifest;
-  const targets = manifest.targets ?? [];
+  const targets = [...(manifest.targets ?? [])];
   const existingIndex = targets.findIndex((t) => t.id === target.id);
-  
+  const existingDefault =
+    existingIndex >= 0 ? targets[existingIndex]?.default === true : false;
+  const nextTarget = {
+    ...target,
+    default: target.default === true || existingDefault || undefined,
+  };
+
   if (existingIndex >= 0) {
-    targets[existingIndex] = target;
+    targets[existingIndex] = nextTarget;
   } else {
-    targets.push(target);
+    targets.push(nextTarget);
   }
 
-  manifest.targets = targets;
+  manifest.targets = target.default
+    ? targets.map((candidate) => ({
+        ...candidate,
+        default: candidate.id === target.id,
+      }))
+    : targets;
+  await saveProjectConfig(cwd, {
+    version: manifest.version,
+    scope: 'project',
+    sources: manifest.sources,
+    targets: manifest.targets,
+    skills: manifest.installs,
+  });
+}
+
+export async function setDefaultProjectTarget(
+  cwd: string,
+  targetId: string,
+): Promise<void> {
+  const loaded = await loadProjectConfig(cwd);
+  if (!loaded) {
+    throw new AgentPmError(`No ${PROJECT_CONFIG_FILENAME} found in ${cwd}.`);
+  }
+
+  const manifest = loaded.manifest;
+  const targets = manifest.targets ?? [];
+  if (!targets.some((target) => target.id === targetId)) {
+    throw new AgentPmError(`Target "${targetId}" not found in config.`);
+  }
+
+  manifest.targets = targets.map((target) => ({
+    ...target,
+    default: target.id === targetId,
+  }));
   await saveProjectConfig(cwd, {
     version: manifest.version,
     scope: 'project',
@@ -544,16 +583,45 @@ export async function addTargetToGlobalConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<void> {
   const config = await loadGlobalConfig(cwd, env);
-  const targets = config.targets ?? [];
+  const targets = [...(config.targets ?? [])];
   const existingIndex = targets.findIndex((t) => t.id === target.id);
+  const existingDefault =
+    existingIndex >= 0 ? targets[existingIndex]?.default === true : false;
+  const nextTarget = {
+    ...target,
+    default: target.default === true || existingDefault || undefined,
+  };
 
   if (existingIndex >= 0) {
-    targets[existingIndex] = target;
+    targets[existingIndex] = nextTarget;
   } else {
-    targets.push(target);
+    targets.push(nextTarget);
   }
 
-  config.targets = targets;
+  config.targets = target.default
+    ? targets.map((candidate) => ({
+        ...candidate,
+        default: candidate.id === target.id,
+      }))
+    : targets;
+  await saveGlobalConfig(cwd, config, env);
+}
+
+export async function setDefaultGlobalTarget(
+  cwd: string,
+  targetId: string,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<void> {
+  const config = await loadGlobalConfig(cwd, env);
+  const targets = config.targets ?? [];
+  if (!targets.some((target) => target.id === targetId)) {
+    throw new AgentPmError(`Target "${targetId}" not found in global config.`);
+  }
+
+  config.targets = targets.map((target) => ({
+    ...target,
+    default: target.id === targetId,
+  }));
   await saveGlobalConfig(cwd, config, env);
 }
 
