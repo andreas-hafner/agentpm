@@ -89,9 +89,13 @@ function printInspection(
   report: Awaited<ReturnType<AgentPmService['inspect']>>,
 ): void {
   section('Source');
-  console.log(`  ${symbols.bullet} locator      : ${style.bold(report.locator)}`);
-  console.log(`  ${symbols.bullet} installable  : ${report.installable ? style.green('yes') : style.red('no')}`);
-  
+  console.log(
+    `  ${symbols.bullet} locator      : ${style.bold(report.locator)}`,
+  );
+  console.log(
+    `  ${symbols.bullet} installable  : ${report.installable ? style.green('yes') : style.red('no')}`,
+  );
+
   section('Trust');
   const trustColor = report.trust.trusted ? 32 : 33;
   console.log(
@@ -100,18 +104,22 @@ function printInspection(
   for (const reason of report.trust.reasons) {
     console.log(`    ${style.gray('-')} ${reason}`);
   }
-  
+
   section('Detected');
   if (report.groups.length === 0) {
     console.log(`  ${symbols.warning} no components detected`);
   }
   for (const group of report.groups) {
-    console.log(`  ${symbols.success} ${style.green(group.label)} (${group.entries.length} entries)`);
+    console.log(
+      `  ${symbols.success} ${style.green(group.label)} (${group.entries.length} entries)`,
+    );
   }
-  
+
   section('Compatibility');
   for (const compatibility of report.compatibleAdapters) {
-    const statusSymbol = compatibility.compatible ? symbols.success : symbols.warning;
+    const statusSymbol = compatibility.compatible
+      ? symbols.success
+      : symbols.warning;
     console.log(
       `  ${statusSymbol} ${style.bold(compatibility.adapter)} (compatibility score: ${style.bold(compatibility.score.toString())}/100)`,
     );
@@ -119,21 +127,25 @@ function printInspection(
       console.log(`    ${style.gray('-')} ${reason}`);
     }
   }
-  
+
   section('Entries');
   for (const group of report.groups) {
     for (const entry of group.entries) {
-      console.log(`  ${symbols.arrow} ${style.bold(entry.name)} ${style.gray('→')} ${style.underline(entry.relativePath)}`);
+      console.log(
+        `  ${symbols.arrow} ${style.bold(entry.name)} ${style.gray('→')} ${style.underline(entry.relativePath)}`,
+      );
     }
   }
-  
+
   if (report.scripts.length > 0) {
     section('Risks');
     for (const script of report.scripts) {
-      console.log(`  ${symbols.warning} custom install script found: ${style.yellow(script.relativePath)}`);
+      console.log(
+        `  ${symbols.warning} custom install script found: ${style.yellow(script.relativePath)}`,
+      );
     }
   }
-  
+
   if (report.warnings.length > 0) {
     section('Warnings');
     for (const warning of report.warnings) {
@@ -149,9 +161,11 @@ function printRuntimeContext(
   section('Runtime');
   console.log(`  ${symbols.bullet} Root Workspace : ${style.bold(graph.cwd)}`);
   if (graph.configPath) {
-    console.log(`  ${symbols.bullet} Config File    : ${style.bold(graph.configPath)}`);
+    console.log(
+      `  ${symbols.bullet} Config File    : ${style.bold(graph.configPath)}`,
+    );
   }
-  
+
   for (const layer of ['global', 'project', 'temporary'] as const) {
     const entries = graph.layers[layer];
     section(`${layer[0]!.toUpperCase()}${layer.slice(1)}`);
@@ -160,17 +174,21 @@ function printRuntimeContext(
       continue;
     }
     for (const entry of entries) {
-      const source = entry.sourceLocator ? ` [source: ${entry.sourceLocator}]` : '';
+      const source = entry.sourceLocator
+        ? ` [source: ${entry.sourceLocator}]`
+        : '';
       const pathSummary = entry.sourceRelativePath
         ? ` ${style.gray('→')} ${entry.sourceRelativePath}`
         : '';
-      console.log(`  ${symbols.success} ${style.bold(entry.name)}${pathSummary}${style.gray(source)}`);
+      console.log(
+        `  ${symbols.success} ${style.bold(entry.name)}${pathSummary}${style.gray(source)}`,
+      );
       for (const warning of entry.warnings) {
         console.log(`    ${symbols.warning} ${style.yellow(warning)}`);
       }
     }
   }
-  
+
   if (graph.warnings.length > 0) {
     section('Warnings');
     for (const warning of graph.warnings) {
@@ -194,16 +212,22 @@ function printUpdates(
       preview.currentRevision && preview.candidateRevision
         ? `${style.bold(preview.currentRevision.slice(0, 7))} ${style.gray('→')} ${style.bold(preview.candidateRevision.slice(0, 7))}`
         : 'n/a';
-    const statusText = preview.changed ? style.yellow('update available') : style.green('up to date');
+    const statusText = preview.changed
+      ? style.yellow('update available')
+      : style.green('up to date');
     const statusSymbol = preview.changed ? symbols.warning : symbols.success;
-    
+
     console.log(
       `  ${statusSymbol} ${style.bold(preview.install.name)}: ${statusText} (${revisionSummary})`,
     );
     if (preview.changed) {
-      console.log(`    ${symbols.bullet} Risk Profile: ${style.bold(preview.risk)}`);
+      console.log(
+        `    ${symbols.bullet} Risk Profile: ${style.bold(preview.risk)}`,
+      );
       for (const diff of preview.diff) {
-        console.log(`      ${style.gray('-')} ${style.cyan(diff.kind.padEnd(8))} : ${diff.path}`);
+        console.log(
+          `      ${style.gray('-')} ${style.cyan(diff.kind.padEnd(8))} : ${diff.path}`,
+        );
       }
       for (const warning of preview.warnings) {
         console.log(`      ${symbols.warning} ${style.yellow(warning)}`);
@@ -217,7 +241,9 @@ function printDoctor(
   issues: Awaited<ReturnType<AgentPmService['doctor']>>,
 ): void {
   if (issues.length === 0) {
-    console.log(`\n${symbols.success} Doctor found no issues. Your environment is perfectly healthy!`);
+    console.log(
+      `\n${symbols.success} Doctor found no issues. Your environment is perfectly healthy!`,
+    );
     return;
   }
 
@@ -225,15 +251,69 @@ function printDoctor(
   for (const issue of issues) {
     const isError = issue.severity === 'error';
     const severitySymbol = isError ? symbols.error : symbols.warning;
-    const severityText = isError ? style.red(issue.severity.toUpperCase()) : style.yellow(issue.severity.toUpperCase());
-    
-    console.log(`  ${severitySymbol} [${severityText}] ${style.bold(issue.code)}: ${issue.message}`);
+    const severityText = isError
+      ? style.red(issue.severity.toUpperCase())
+      : style.yellow(issue.severity.toUpperCase());
+
+    console.log(
+      `  ${severitySymbol} [${severityText}] ${style.bold(issue.code)}: ${issue.message}`,
+    );
     if (issue.path) {
       console.log(`    ${style.gray('Path   :')} ${issue.path}`);
     }
     if (issue.remedy) {
       console.log(`    ${style.gray('Remedy :')} ${style.green(issue.remedy)}`);
     }
+  }
+  console.log('');
+}
+
+function printRefreshResults(
+  results: Awaited<ReturnType<AgentPmService['refreshSources']>>,
+): void {
+  if (results.length === 0) {
+    console.log(`\n${symbols.info} No sources configured.\n`);
+    return;
+  }
+
+  section('Source Refresh');
+  for (const result of results) {
+    console.log(
+      `  ${symbols.success} ${style.bold(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}`,
+    );
+  }
+  console.log('');
+}
+
+function printCacheCleanResult(
+  result: Awaited<ReturnType<AgentPmService['cleanCache']>>,
+): void {
+  if (result.removedEntries === 0) {
+    console.log(`\n${symbols.success} Cache is already clean.\n`);
+    return;
+  }
+
+  section('Cache Clean');
+  console.log(
+    `  ${symbols.success} Removed ${style.bold(result.removedEntries.toString())} unused cache item(s).`,
+  );
+  for (const removedPath of result.removedPaths) {
+    console.log(`    ${style.gray('-')} ${removedPath}`);
+  }
+  console.log('');
+}
+
+function printDoctorFixes(
+  actions: Awaited<ReturnType<AgentPmService['planDoctorFixes']>>,
+): void {
+  if (actions.length === 0) {
+    console.log(`\n${symbols.info} No safe automatic fixes are available.\n`);
+    return;
+  }
+
+  section('Planned Fixes');
+  for (const action of actions) {
+    console.log(`  ${symbols.warning} ${style.yellow(action.description)}`);
   }
   console.log('');
 }
@@ -281,7 +361,7 @@ const program = new Command();
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.1.0')
+  .version('0.3.0')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock());
@@ -318,7 +398,9 @@ source
   .argument('<source>', 'Source id or locator')
   .action(async (sourceToken: string) => {
     await withService((service) => service.removeSource(sourceToken));
-    console.log(`\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`);
+    console.log(
+      `\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`,
+    );
   });
 
 const targetCmd = program
@@ -332,11 +414,17 @@ targetCmd
   .argument('<locator>', 'Target locator (Git URL or registry path)')
   .option('--global', 'Add target to global config')
   .action(async (id: string, locator: string, flags: { global?: boolean }) => {
-    await withService((service) => service.addTarget(id, locator, flags.global));
+    await withService((service) =>
+      service.addTarget(id, locator, flags.global),
+    );
     if (flags.global) {
-      console.log(`\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config\n`);
+      console.log(
+        `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config\n`,
+      );
     } else {
-      console.log(`\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}\n`);
+      console.log(
+        `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}\n`,
+      );
     }
   });
 
@@ -347,44 +435,51 @@ targetCmd
   .action(async (id: string, flags: { global?: boolean }) => {
     await withService((service) => service.removeTarget(id, flags.global));
     if (flags.global) {
-      console.log(`\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`);
+      console.log(
+        `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`,
+      );
     } else {
-      console.log(`\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from ${style.bold('agentpm.yaml')}\n`);
+      console.log(
+        `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from ${style.bold('agentpm.yaml')}\n`,
+      );
     }
   });
 
-targetCmd
-  .command('list')
-  .action(async () => {
-    const { loadProjectConfig, loadGlobalConfig } = await import('@agentpm/config');
-    const config = await loadProjectConfig(process.cwd());
-    const globalConfig = await loadGlobalConfig(process.cwd());
+targetCmd.command('list').action(async () => {
+  const { loadProjectConfig, loadGlobalConfig } =
+    await import('@agentpm/config');
+  const config = await loadProjectConfig(process.cwd());
+  const globalConfig = await loadGlobalConfig(process.cwd());
 
-    const projectTargets = config?.manifest.targets ?? [];
-    const globalTargets = globalConfig.targets ?? [];
+  const projectTargets = config?.manifest.targets ?? [];
+  const globalTargets = globalConfig.targets ?? [];
 
-    if (projectTargets.length === 0 && globalTargets.length === 0) {
-      console.log('No targets configured in agentpm.yaml or global config.');
-      return;
+  if (projectTargets.length === 0 && globalTargets.length === 0) {
+    console.log('No targets configured in agentpm.yaml or global config.');
+    return;
+  }
+
+  if (projectTargets.length > 0) {
+    console.log('Project Targets (agentpm.yaml):');
+    for (const target of projectTargets) {
+      const targetId = target.id ?? '(unnamed)';
+      console.log(
+        `${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`,
+      );
     }
+    console.log('');
+  }
 
-    if (projectTargets.length > 0) {
-      console.log('Project Targets (agentpm.yaml):');
-      for (const target of projectTargets) {
-        const targetId = target.id ?? '(unnamed)';
-        console.log(`${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
-      }
-      console.log('');
+  if (globalTargets.length > 0) {
+    console.log('Global Targets (config.yaml):');
+    for (const target of globalTargets) {
+      const targetId = target.id ?? '(unnamed)';
+      console.log(
+        `${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`,
+      );
     }
-
-    if (globalTargets.length > 0) {
-      console.log('Global Targets (config.yaml):');
-      for (const target of globalTargets) {
-        const targetId = target.id ?? '(unnamed)';
-        console.log(`${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`);
-      }
-    }
-  });
+  }
+});
 
 program
   .command('inspect')
@@ -426,6 +521,20 @@ program
   });
 
 program
+  .command('refresh')
+  .description('Refresh local indexes for configured sources')
+  .argument(
+    '[sources...]',
+    'Optional source ids, locators, or names to refresh',
+  )
+  .action(async (sources: string[]) => {
+    const results = await withService((service) =>
+      service.refreshSources(sources),
+    );
+    printRefreshResults(results);
+  });
+
+program
   .command('install')
   .alias('add')
   .argument('[names...]', 'Skill names or source token for --all/--skill flows')
@@ -464,7 +573,9 @@ program
         }),
       );
       for (const install of installs) {
-        console.log(`\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`);
+        console.log(
+          `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+        );
       }
 
       if (installs.length > 0 && !flags.global) {
@@ -476,17 +587,46 @@ program
 program
   .command('update')
   .argument('[names...]', 'Optional installed names to update')
+  .option('--refresh', 'Refresh source indexes before checking updates')
   .option('--yes', 'Confirm risky remaps automatically')
-  .action(async (names: string[], flags: { yes?: boolean }) => {
-    const previews = await withService((service) =>
-      service.update({
-        names,
-        apply: true,
-        yes: Boolean(flags.yes),
-      } satisfies UpdateOptions),
-    );
-    printUpdates(previews);
-  });
+  .action(
+    async (names: string[], flags: { yes?: boolean; refresh?: boolean }) => {
+      await withService(async (service) => {
+        if (flags.refresh) {
+          printRefreshResults(await service.refreshSources());
+        }
+
+        const previews = await service.previewUpdates({ names });
+        printUpdates(previews);
+
+        const changed = previews.filter((preview) => preview.changed);
+        if (changed.length === 0) {
+          return;
+        }
+
+        if (!flags.yes) {
+          const confirmed = await promptToConfirm(
+            'Do you want to update these skills? [y/N]',
+            changed.map(
+              (preview) =>
+                `${preview.install.name}: ${preview.currentRevision?.slice(0, 7) ?? 'n/a'} -> ${preview.candidateRevision?.slice(0, 7) ?? 'n/a'}`,
+            ),
+          );
+          if (!confirmed) {
+            console.log(`\n${symbols.info} Update skipped.\n`);
+            return;
+          }
+        }
+
+        const applied = await service.update({
+          names,
+          apply: true,
+          yes: Boolean(flags.yes),
+        } satisfies UpdateOptions);
+        printUpdates(applied);
+      });
+    },
+  );
 
 program
   .command('diff')
@@ -506,8 +646,17 @@ program
     const removed = await withService((service) =>
       service.removeInstall(name, { purge: Boolean(flags.purge) }),
     );
-    console.log(`\n${symbols.success} ${style.bold('Removed')} ${style.green(removed.name)}\n`);
+    console.log(
+      `\n${symbols.success} ${style.bold('Removed')} ${style.green(removed.name)}\n`,
+    );
   });
+
+const cacheCmd = program.command('cache').description('Manage AgentPM cache');
+
+cacheCmd.command('clean').action(async () => {
+  const result = await withService((service) => service.cleanCache());
+  printCacheCleanResult(result);
+});
 
 program
   .command('push')
@@ -539,12 +688,16 @@ program
         }),
       );
       if (result.success) {
-        console.log(`\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`);
+        console.log(
+          `\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`,
+        );
         for (const entry of result.entries) {
           console.log(`  ${symbols.bullet} ${entry}`);
         }
         if (result.revision) {
-          console.log(`  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`);
+          console.log(
+            `  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`,
+          );
         }
         for (const warning of result.warnings) {
           console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
@@ -569,7 +722,9 @@ program.command('list').action(async () => {
 
 program.command('init').action(async () => {
   const result = await withService((service) => service.initManifest());
-  console.log(`\n${symbols.success} ${style.bold('Initialized manifest')} ${style.gray('→')} ${style.underline(result.manifestPath)}\n`);
+  console.log(
+    `\n${symbols.success} ${style.bold('Initialized manifest')} ${style.gray('→')} ${style.underline(result.manifestPath)}\n`,
+  );
 });
 
 program.command('sync').action(async () => {
@@ -577,7 +732,9 @@ program.command('sync').action(async () => {
     checkFirstStart: false,
   });
   for (const install of installs) {
-    console.log(`${symbols.success} ${style.bold('Synced')} ${style.green(install.name)}`);
+    console.log(
+      `${symbols.success} ${style.bold('Synced')} ${style.green(install.name)}`,
+    );
   }
 });
 
@@ -603,10 +760,53 @@ program
     printRuntimeContext(graph);
   });
 
-program.command('doctor').action(async () => {
-  const issues = await withService((service) => service.doctor());
-  printDoctor(issues);
-});
+program
+  .command('doctor')
+  .option('--fix', 'Interactively apply safe fixes for detected errors')
+  .action(async (flags: { fix?: boolean }) => {
+    await withService(async (service) => {
+      const issues = await service.doctor();
+      printDoctor(issues);
+
+      if (!flags.fix) {
+        return;
+      }
+
+      const errors = issues.filter((issue) => issue.severity === 'error');
+      if (errors.length === 0) {
+        console.log(`\n${symbols.success} No errors detected.\n`);
+        return;
+      }
+
+      const shouldPlan = await promptToConfirm(
+        'Errors detected. Would you like to attempt to fix these issues? [y/N]',
+      );
+      if (!shouldPlan) {
+        console.log(`\n${symbols.info} No fixes applied.\n`);
+        return;
+      }
+
+      const actions = await service.planDoctorFixes(issues);
+      printDoctorFixes(actions);
+      if (actions.length === 0) {
+        return;
+      }
+
+      const shouldApply = await promptToConfirm('Apply these fixes? [y/N]');
+      if (!shouldApply) {
+        console.log(`\n${symbols.info} No fixes applied.\n`);
+        return;
+      }
+
+      const results = await service.applyDoctorFixes(actions);
+      for (const result of results) {
+        if (result.applied) {
+          console.log(`${symbols.success} ${result.action.description}`);
+        }
+      }
+      console.log('');
+    });
+  });
 
 try {
   await program.parseAsync(process.argv);
@@ -615,11 +815,17 @@ try {
     if (err.message === '(outputHelp)' || err.message === program.version()) {
       process.exit(0);
     }
-    console.error(`\n${symbols.error} ${style.bold(style.red('AgentPM Command Failed'))}`);
+    console.error(
+      `\n${symbols.error} ${style.bold(style.red('AgentPM Command Failed'))}`,
+    );
     console.error(`  ${style.red(err.message)}`);
-    console.error(`\n${style.gray('Need help? Run a diagnostic check using:')} ${style.cyan('agentpm doctor')}\n`);
+    console.error(
+      `\n${style.gray('Need help? Run a diagnostic check using:')} ${style.cyan('agentpm doctor')}\n`,
+    );
   } else {
-    console.error(`\n${symbols.error} ${style.bold(style.red('An unexpected error occurred'))}`);
+    console.error(
+      `\n${symbols.error} ${style.bold(style.red('An unexpected error occurred'))}`,
+    );
     console.error(`  ${style.red(String(err))}\n`);
   }
   process.exit(1);

@@ -11,9 +11,11 @@ The publishable MVP centers on a committed `agentpm.yaml`: projects declare the 
 - Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
+- Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
 - Runtime context resolution across global, project, and temporary layers without writing project runtime folders
 - Diagnostics for malformed config, unavailable sources, missing generated targets, broken links, and tracked generated artifacts
-- Update previews for Git-backed installs, layout migration warnings, and local source drift checks
+- Interactive update previews for Git-backed installs, layout migration warnings, and local source drift checks
+- Structured cache cleanup with `agentpm cache clean` while preserving the local search index
 
 ## Getting started
 
@@ -85,16 +87,20 @@ You can install the CLI globally on your machine to use `agentpm` from anywhere.
 From the root of this repository, use one of the following commands:
 
 **For active development (Live Symlink)**:
+
 ```bash
 pnpm run link:global
 ```
-*This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`.*
+
+_This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`._
 
 **For static installation**:
+
 ```bash
 pnpm run install:global
 ```
-*This installs a static copy of the CLI globally. You will need to run this command again to apply future updates.*
+
+_This installs a static copy of the CLI globally. You will need to run this command again to apply future updates._
 
 ## Smoke test
 
@@ -115,9 +121,11 @@ agentpm search audio
 agentpm install audio-mastering --project --target codex
 agentpm resolve --temp release-helper
 agentpm sync
-agentpm update
+agentpm refresh
+agentpm update --refresh
 agentpm diff
-agentpm doctor
+agentpm cache clean
+agentpm doctor --fix
 agentpm push skill-a --to git@github.com:my-org/my-skills.git
 agentpm push --all --to git@github.com:my-org/my-skills.git
 ```

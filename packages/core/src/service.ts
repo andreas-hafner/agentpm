@@ -52,8 +52,11 @@ import {
   slugify,
   toPosixPath,
   type CacheRepoRecord,
+  type CacheCleanResult,
   type CatalogEntryRecord,
   type ContentKind,
+  type DoctorFixAction,
+  type DoctorFixResult,
   type DoctorIssue,
   type InstallRecord,
   type InstallScope,
@@ -67,6 +70,7 @@ import {
   type ProjectConfigFile,
   type PushOptions,
   type PushResult,
+  type RefreshSourceResult,
   type RuntimeContextEntry,
   type RuntimeContextGraph,
   type SearchResult,
@@ -210,7 +214,7 @@ export class AgentPmService {
   }
 
   private cacheBasePath(cacheKey: string): string {
-    return path.join(this.paths.cacheDir, cacheKey.slice(0, 16));
+    return path.join(this.paths.cacheDir, 'repos', cacheKey.slice(0, 16));
   }
 
   async addSource(locator: string): Promise<AddSourceResult> {
@@ -235,6 +239,32 @@ export class AgentPmService {
 
   listSources(): SourceRecord[] {
     return this.db.listSources();
+  }
+
+  async refreshSources(
+    sourceTokens: string[] = [],
+  ): Promise<RefreshSourceResult[]> {
+    await this.initialize();
+    const sources =
+      sourceTokens.length > 0
+        ? sourceTokens.map((token) => {
+            const source = this.findSourceByToken(token);
+            if (!source) {
+              throw new AgentPmError(`Unknown source: ${token}`);
+            }
+            return source;
+          })
+        : this.db.listSources();
+
+    const results: RefreshSourceResult[] = [];
+    for (const source of sources) {
+      const result = await this.reindexSource(source);
+      results.push({
+        source: result.source,
+        indexedEntries: result.indexedEntries,
+      });
+    }
+    return results;
   }
 
   async removeSource(sourceToken: string): Promise<void> {
@@ -354,7 +384,9 @@ export class AgentPmService {
             return selector.name ? entry.name === selector.name : false;
           }) ??
           // 2. Exact name match
-          detectedEntries.find((entry) => entry.name === selection.entry.name) ??
+          detectedEntries.find(
+            (entry) => entry.name === selection.entry.name,
+          ) ??
           // 3. Basename match — handles nested paths like composio-skills/doppler-automation
           (selector.relativePath
             ? detectedEntries.find(
@@ -560,36 +592,89 @@ export class AgentPmService {
         }
       }
 
-      await removeManagedLink(preview.install.targetPath);
-      await ensureManagedLink(
-        preview.install.targetPath,
-        preview.nextLinkTarget,
-      );
-      const nextSourceRelativePath =
-        preview.install.contentKind === 'git' &&
-        preview.install.cacheKey &&
-        preview.candidateRevision
-          ? path
-              .relative(
-                resolveReleasePath(
-                  this.cacheBasePath(preview.install.cacheKey),
-                  preview.candidateRevision,
-                ),
-                preview.nextLinkTarget,
-              )
-              .split(path.sep)
-              .join('/')
-          : preview.install.sourceRelativePath;
-      this.db.saveInstall({
-        ...preview.install,
-        linkTarget: preview.nextLinkTarget,
-        sourceRelativePath: nextSourceRelativePath,
-        installedRevision: preview.candidateRevision,
-        updatedAt: nowIso(),
-      });
+      try {
+        await removeManagedLink(preview.install.targetPath);
+        await ensureManagedLink(
+          preview.install.targetPath,
+          preview.nextLinkTarget,
+        );
+        const nextSourceRelativePath =
+          preview.install.contentKind === 'git' &&
+          preview.install.cacheKey &&
+          preview.candidateRevision
+            ? path
+                .relative(
+                  resolveReleasePath(
+                    this.cacheBasePath(preview.install.cacheKey),
+                    preview.candidateRevision,
+                  ),
+                  preview.nextLinkTarget,
+                )
+                .split(path.sep)
+                .join('/')
+            : preview.install.sourceRelativePath;
+        this.db.saveInstall({
+          ...preview.install,
+          linkTarget: preview.nextLinkTarget,
+          sourceRelativePath: nextSourceRelativePath,
+          installedRevision: preview.candidateRevision,
+          updatedAt: nowIso(),
+        });
+      } catch (error) {
+        throw new AgentPmError(
+          `Failed to update "${preview.install.name}": ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     return previews;
+  }
+
+  async cleanCache(): Promise<CacheCleanResult> {
+    await this.initialize();
+    await ensureDir(this.paths.cacheDir);
+    const installedCacheKeys = new Set(
+      this.db
+        .listInstalls()
+        .map((install) => install.cacheKey)
+        .filter((cacheKey): cacheKey is string => Boolean(cacheKey)),
+    );
+    const removedPaths: string[] = [];
+
+    for (const cacheRepo of this.db.listCacheRepos()) {
+      if (installedCacheKeys.has(cacheRepo.cacheKey)) {
+        continue;
+      }
+      await fs.rm(cacheRepo.basePath, { recursive: true, force: true });
+      this.db.deleteCacheRepo(cacheRepo.cacheKey);
+      removedPaths.push(cacheRepo.basePath);
+    }
+
+    const reposDir = path.join(this.paths.cacheDir, 'repos');
+    const repoEntries = await fs
+      .readdir(reposDir, { withFileTypes: true })
+      .catch(() => []);
+    const knownPaths = new Set(
+      this.db
+        .listCacheRepos()
+        .map((cacheRepo) => path.resolve(cacheRepo.basePath)),
+    );
+    for (const entry of repoEntries) {
+      if (!entry.isDirectory()) {
+        continue;
+      }
+      const entryPath = path.join(reposDir, entry.name);
+      if (knownPaths.has(path.resolve(entryPath))) {
+        continue;
+      }
+      await fs.rm(entryPath, { recursive: true, force: true });
+      removedPaths.push(entryPath);
+    }
+
+    return {
+      removedEntries: removedPaths.length,
+      removedPaths,
+    };
   }
 
   async removeInstall(
@@ -764,21 +849,21 @@ export class AgentPmService {
     return installs;
   }
 
-  async addTarget(
-    id: string,
-    locator: string,
-    global = false,
-  ): Promise<void> {
+  async addTarget(id: string, locator: string, global = false): Promise<void> {
     await this.initialize();
     const sourceKind = await this.classifySource(locator);
-    const pushKind = sourceKind === 'local' ? 'git' as const : sourceKind;
+    const pushKind = sourceKind === 'local' ? ('git' as const) : sourceKind;
     if (global) {
       const { addTargetToGlobalConfig } = await import('@agentpm/config');
-      await addTargetToGlobalConfig(this.cwd, {
-        id,
-        locator,
-        kind: pushKind,
-      }, this.env);
+      await addTargetToGlobalConfig(
+        this.cwd,
+        {
+          id,
+          locator,
+          kind: pushKind,
+        },
+        this.env,
+      );
     } else {
       const { addTargetToProjectConfig } = await import('@agentpm/config');
       await addTargetToProjectConfig(this.cwd, {
@@ -868,12 +953,17 @@ export class AgentPmService {
     );
   }
 
-  private async discoverPushCandidates(rootPath: string): Promise<PushCandidate[]> {
+  private async discoverPushCandidates(
+    rootPath: string,
+  ): Promise<PushCandidate[]> {
     const report = await inspectRepository(rootPath, rootPath, 'local');
     const entries = listInstallableEntries(report);
     const candidates = await Promise.all(
       entries.map(async (entry) => {
-        const mapping = await getAdapter(entry.adapter).install(entry, rootPath);
+        const mapping = await getAdapter(entry.adapter).install(
+          entry,
+          rootPath,
+        );
         return {
           name: mapping.name,
           adapter: mapping.adapter,
@@ -884,7 +974,27 @@ export class AgentPmService {
       }),
     );
 
-    return candidates.sort((left, right) =>
+    const installedCandidates = this.db
+      .listInstalls()
+      .filter((install) => path.resolve(install.scopeRoot) === rootPath)
+      .map((install) => ({
+        name: install.name,
+        adapter: install.adapter,
+        sourcePath: install.linkTarget,
+        sourceRelativePath: install.sourceRelativePath,
+        destinationRelativePath: toPosixPath(
+          path.relative(rootPath, install.targetPath),
+        ),
+      }));
+
+    return [
+      ...new Map(
+        [...candidates, ...installedCandidates].map((candidate) => [
+          candidate.destinationRelativePath,
+          candidate,
+        ]),
+      ).values(),
+    ].sort((left, right) =>
       left.destinationRelativePath.localeCompare(right.destinationRelativePath),
     );
   }
@@ -923,7 +1033,9 @@ export class AgentPmService {
       }
 
       const selectorMatches = workspaceCandidates.filter((candidate) => {
-        const destinationBase = path.basename(candidate.destinationRelativePath);
+        const destinationBase = path.basename(
+          candidate.destinationRelativePath,
+        );
         const sourceBase = path.basename(candidate.sourceRelativePath);
         return (
           candidate.name === normalizedToken ||
@@ -939,14 +1051,18 @@ export class AgentPmService {
       }
 
       if (await pathExists(resolvedPath)) {
-        const directCandidates = await this.discoverPushCandidates(resolvedPath);
+        const directCandidates =
+          await this.discoverPushCandidates(resolvedPath);
         if (directCandidates.length > 0) {
           return directCandidates;
         }
       }
 
       const available = workspaceCandidates
-        .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+        .map(
+          (candidate) =>
+            `  - ${candidate.name} -> ${candidate.destinationRelativePath}`,
+        )
         .join('\n');
       throw new AgentPmError(
         `Could not find a pushable skill or agent matching "${token}".\n\nAvailable entries:\n${available}`,
@@ -969,7 +1085,10 @@ export class AgentPmService {
     }
 
     const available = workspaceCandidates
-      .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+      .map(
+        (candidate) =>
+          `  - ${candidate.name} -> ${candidate.destinationRelativePath}`,
+      )
       .join('\n');
     throw new AgentPmError(
       `Multiple pushable entries were detected. Re-run with a skill name, a path, or --all.\n\nAvailable entries:\n${available}`,
@@ -986,7 +1105,10 @@ export class AgentPmService {
 
     if (!this.prompts.selectOne) {
       const available = matches
-        .map((candidate) => `  - ${candidate.name} -> ${candidate.destinationRelativePath}`)
+        .map(
+          (candidate) =>
+            `  - ${candidate.name} -> ${candidate.destinationRelativePath}`,
+        )
         .join('\n');
       throw new AgentPmError(
         `Multiple pushable entries matched "${token}". Re-run in interactive mode or use a more specific path.\n\nMatches:\n${available}`,
@@ -1044,18 +1166,28 @@ export class AgentPmService {
         }
       }
 
-      const { simpleGit } = await import('simple-git');
-      const repo = simpleGit(releasePath);
-      await repo.add('.');
+      await runGitCommand(['add', '.'], {
+        cwd: releasePath,
+        env: this.env,
+      });
 
       const commitMessage =
         message ??
         `Update ${entries.length === 1 ? entries[0]!.name : `${entries.length} skills`} from AgentPM`;
-      await repo.commit(commitMessage).catch(() => {
+      await runGitCommand(['commit', '-m', commitMessage], {
+        cwd: releasePath,
+        env: this.env,
+      }).catch(() => {
         warnings.push('No changes to commit or commit failed.');
       });
 
-      const revision = (await repo.revparse(['HEAD']).catch(() => '')).trim();
+      const revision = (
+        await runGitCommand(['rev-parse', 'HEAD'], {
+          cwd: releasePath,
+          env: this.env,
+          captureStdout: true,
+        }).catch(() => ({ stdout: '' }))
+      ).stdout.trim();
       if (!revision) {
         throw new AgentPmError(
           'No commit is available to push. Add files or create a commit before pushing.',
@@ -1426,6 +1558,64 @@ export class AgentPmService {
     }
 
     return issues;
+  }
+
+  async planDoctorFixes(
+    issues: DoctorIssue[] | null = null,
+  ): Promise<DoctorFixAction[]> {
+    await this.initialize();
+    const doctorIssues = issues ?? (await this.doctor());
+    const actions: DoctorFixAction[] = [];
+
+    for (const issue of doctorIssues) {
+      if (
+        !issue.sourceId ||
+        (issue.code !== 'source-missing' &&
+          issue.code !== 'source-unavailable' &&
+          issue.code !== 'registry-empty')
+      ) {
+        continue;
+      }
+
+      const source = this.db.getSource(issue.sourceId);
+      if (!source || this.db.countInstallsForSource(source.id) > 0) {
+        continue;
+      }
+
+      actions.push({
+        code: 'remove-source',
+        sourceId: source.id,
+        description: `Removing unreachable source: ${source.displayName} (${source.locator})`,
+      });
+    }
+
+    return actions;
+  }
+
+  async applyDoctorFixes(
+    actions: DoctorFixAction[],
+  ): Promise<DoctorFixResult[]> {
+    await this.initialize();
+    const results: DoctorFixResult[] = [];
+
+    for (const action of actions) {
+      if (action.code === 'remove-source') {
+        const source = this.db.getSource(action.sourceId);
+        if (!source) {
+          results.push({ action, applied: false });
+          continue;
+        }
+        if (this.db.countInstallsForSource(source.id) > 0) {
+          throw new AgentPmError(
+            `Cannot remove source "${source.displayName}" while installs still depend on it.`,
+          );
+        }
+        this.db.deleteSource(source.id);
+        results.push({ action, applied: true });
+      }
+    }
+
+    return results;
   }
 
   private async reindexSource(source: SourceRecord): Promise<AddSourceResult> {
@@ -2211,7 +2401,7 @@ export class AgentPmService {
       source.kind === 'local' ? 'local' : 'git',
     );
 
-        const entries = listInstallableEntries(report);
+    const entries = listInstallableEntries(report);
     if (entries.length === 0) {
       // Fallback: if sparse checkout yielded no entries, do a full checkout!
       await fs.rm(cacheBasePath, { recursive: true, force: true });

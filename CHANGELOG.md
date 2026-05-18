@@ -8,6 +8,25 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.3.0] - 2026-05-18
+
+### Added
+
+- `agentpm refresh` and `agentpm update --refresh` to rebuild local source indexes from configured registry, Git, and local sources.
+- Interactive `agentpm update` previews that ask for confirmation before applying available skill updates.
+- `agentpm cache clean` to remove unused repository cache roots while preserving source indexes for search.
+- `agentpm doctor --fix` safe-fix planning for unreachable unused sources, including a second confirmation before applying changes.
+- Regression coverage for Git source refresh, commit-pinned installs, cache cleanup, doctor fixes, and push flows.
+
+### Changed
+
+- Git cache materialization now lives under `cache/repos/` for a more explicit cache layout.
+- Workspace package versions were aligned to `0.3.0`.
+
+### Fixed
+
+- PNPM/Vitest push tests no longer fail from a `packages/core` runtime import of `simple-git`; core push now uses the existing Git command runner.
+
 ## [0.2.2] - 2026-05-17
 
 ### Added

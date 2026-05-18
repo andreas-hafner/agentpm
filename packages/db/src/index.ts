@@ -3,7 +3,13 @@ import path from 'node:path';
 
 import { DatabaseSync } from 'node:sqlite';
 
-import type { CacheRepoRecord, CatalogEntryRecord, InstallRecord, SearchResult, SourceRecord } from '@agentpm/shared';
+import type {
+  CacheRepoRecord,
+  CatalogEntryRecord,
+  InstallRecord,
+  SearchResult,
+  SourceRecord,
+} from '@agentpm/shared';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -47,7 +53,8 @@ function mapCatalogEntry(row: Record<string, unknown>): CatalogEntryRecord {
     repo: row.repo as string,
     ref: (row.ref as string | null) ?? null,
     path: (row.path as string | null) ?? null,
-    adapterHint: (row.adapter_hint as CatalogEntryRecord['adapterHint']) ?? null,
+    adapterHint:
+      (row.adapter_hint as CatalogEntryRecord['adapterHint']) ?? null,
     tags: decodeArray(row.tags_json as string | null),
     metadata: decodeObject(row.metadata_json as string | null),
     createdAt: row.created_at as string,
@@ -208,7 +215,9 @@ export class AgentPmDatabase {
       updatedAt: source.updatedAt,
     });
 
-    const stored = this.getSource(source.id) ?? this.getSourceByLocator(source.normalizedLocator);
+    const stored =
+      this.getSource(source.id) ??
+      this.getSourceByLocator(source.normalizedLocator);
     if (!stored) {
       throw new Error(`Failed to store source ${source.id}`);
     }
@@ -223,13 +232,17 @@ export class AgentPmDatabase {
   }
 
   getSource(id: string): SourceRecord | null {
-    const row = this.database.prepare('select * from sources where id = ?').get(id);
+    const row = this.database
+      .prepare('select * from sources where id = ?')
+      .get(id);
     return row ? mapSource(row) : null;
   }
 
   getSourceByLocator(locatorOrId: string): SourceRecord | null {
     const row = this.database
-      .prepare('select * from sources where id = ? or locator = ? or normalized_locator = ? limit 1')
+      .prepare(
+        'select * from sources where id = ? or locator = ? or normalized_locator = ? limit 1',
+      )
       .get(locatorOrId, locatorOrId, locatorOrId);
     return row ? mapSource(row) : null;
   }
@@ -241,7 +254,9 @@ export class AgentPmDatabase {
   replaceCatalogEntries(sourceId: string, entries: CatalogEntryRecord[]): void {
     this.database.exec('BEGIN');
     try {
-      this.database.prepare('delete from catalog_entries where source_id = ?').run(sourceId);
+      this.database
+        .prepare('delete from catalog_entries where source_id = ?')
+        .run(sourceId);
       const statement = this.database.prepare(`
         insert into catalog_entries (
           id, source_id, name, description, repo, ref, path, adapter_hint, tags_json, metadata_json, created_at, updated_at
@@ -283,7 +298,9 @@ export class AgentPmDatabase {
 
   listCatalogEntriesBySource(sourceId: string): CatalogEntryRecord[] {
     return this.database
-      .prepare('select * from catalog_entries where source_id = ? order by name asc')
+      .prepare(
+        'select * from catalog_entries where source_id = ? order by name asc',
+      )
       .all(sourceId)
       .map((row) => mapCatalogEntry(row as Record<string, unknown>));
   }
@@ -298,20 +315,23 @@ export class AgentPmDatabase {
   searchCatalogEntries(query: string): CatalogEntryRecord[] {
     const likeQuery = `%${query.toLowerCase()}%`;
     return this.database
-      .prepare(`
+      .prepare(
+        `
         select * from catalog_entries
         where lower(name) like ?
            or lower(coalesce(description, '')) like ?
            or lower(tags_json) like ?
         order by name asc
-      `)
+      `,
+      )
       .all(likeQuery, likeQuery, likeQuery)
       .map((row) => mapCatalogEntry(row as Record<string, unknown>));
   }
 
   saveCacheRepo(cacheRepo: CacheRepoRecord): CacheRepoRecord {
     this.database
-      .prepare(`
+      .prepare(
+        `
         insert into cache_repos (
           cache_key, source_id, locator, kind, base_path, current_revision, is_git, layout_signature, metadata_json, updated_at
         ) values (
@@ -327,7 +347,8 @@ export class AgentPmDatabase {
           layout_signature = excluded.layout_signature,
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
-      `)
+      `,
+      )
       .run({
         cacheKey: cacheRepo.cacheKey,
         sourceId: cacheRepo.sourceId,
@@ -349,7 +370,9 @@ export class AgentPmDatabase {
   }
 
   getCacheRepo(cacheKey: string): CacheRepoRecord | null {
-    const row = this.database.prepare('select * from cache_repos where cache_key = ?').get(cacheKey);
+    const row = this.database
+      .prepare('select * from cache_repos where cache_key = ?')
+      .get(cacheKey);
     return row ? mapCacheRepo(row) : null;
   }
 
@@ -360,9 +383,16 @@ export class AgentPmDatabase {
       .map((row) => mapCacheRepo(row as Record<string, unknown>));
   }
 
+  deleteCacheRepo(cacheKey: string): void {
+    this.database
+      .prepare('delete from cache_repos where cache_key = ?')
+      .run(cacheKey);
+  }
+
   saveInstall(install: InstallRecord): InstallRecord {
     this.database
-      .prepare(`
+      .prepare(
+        `
         insert into installs (
           id, name, source_id, catalog_entry_id, adapter, scope, scope_root, target_path, link_target,
           source_relative_path, source_root_relative_path, selected_items_json, content_kind, content_locator,
@@ -392,7 +422,8 @@ export class AgentPmDatabase {
           layout_signature = excluded.layout_signature,
           metadata_json = excluded.metadata_json,
           updated_at = excluded.updated_at
-      `)
+      `,
+      )
       .run({
         id: install.id,
         name: install.name,
@@ -425,7 +456,9 @@ export class AgentPmDatabase {
   }
 
   getInstall(installId: string): InstallRecord | null {
-    const row = this.database.prepare('select * from installs where id = ?').get(installId);
+    const row = this.database
+      .prepare('select * from installs where id = ?')
+      .get(installId);
     return row ? mapInstall(row) : null;
   }
 
@@ -455,14 +488,18 @@ export class AgentPmDatabase {
   }
 
   countInstallsForSource(sourceId: string): number {
-    const row = this.database.prepare('select count(*) as count from installs where source_id = ?').get(sourceId) as {
+    const row = this.database
+      .prepare('select count(*) as count from installs where source_id = ?')
+      .get(sourceId) as {
       count: number;
     };
     return row.count;
   }
 
   countInstallsForCacheKey(cacheKey: string): number {
-    const row = this.database.prepare('select count(*) as count from installs where cache_key = ?').get(cacheKey) as {
+    const row = this.database
+      .prepare('select count(*) as count from installs where cache_key = ?')
+      .get(cacheKey) as {
       count: number;
     };
     return row.count;
@@ -471,24 +508,26 @@ export class AgentPmDatabase {
   searchInstalled(query: string): SearchResult[] {
     const likeQuery = `%${query.toLowerCase()}%`;
     return this.database
-      .prepare(`
+      .prepare(
+        `
         select name, adapter, scope, source_id, content_locator
         from installs
         where lower(name) like ?
         order by name asc
-      `)
+      `,
+      )
       .all(likeQuery)
       .map((row) => {
         const record = row as Record<string, unknown>;
         return {
-        kind: 'installed' as const,
-        name: record.name as string,
-        description: null,
-        sourceId: record.source_id as string,
-        adapter: (record.adapter as SearchResult['adapter']) ?? null,
-        scope: (record.scope as SearchResult['scope']) ?? null,
-        locator: (record.content_locator as string | null) ?? null,
-      };
+          kind: 'installed' as const,
+          name: record.name as string,
+          description: null,
+          sourceId: record.source_id as string,
+          adapter: (record.adapter as SearchResult['adapter']) ?? null,
+          scope: (record.scope as SearchResult['scope']) ?? null,
+          locator: (record.content_locator as string | null) ?? null,
+        };
       });
   }
 }

@@ -327,6 +327,27 @@ export interface PromptApi {
   confirm?(message: string, details?: string[]): Promise<boolean>;
 }
 
+export interface RefreshSourceResult {
+  source: SourceRecord;
+  indexedEntries: number;
+}
+
+export interface CacheCleanResult {
+  removedEntries: number;
+  removedPaths: string[];
+}
+
+export interface DoctorFixAction {
+  code: 'remove-source';
+  sourceId: string;
+  description: string;
+}
+
+export interface DoctorFixResult {
+  action: DoctorFixAction;
+  applied: boolean;
+}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }

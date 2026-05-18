@@ -1,6 +1,6 @@
 {
   "name": "agentpm",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "license": "MIT",
   "description": "Project-aware AI skill orchestration CLI",
   "type": "module",
