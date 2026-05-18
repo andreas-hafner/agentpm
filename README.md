@@ -142,3 +142,7 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 - [Changelog](./CHANGELOG.md)
 - [Contributing](./CONTRIBUTING.md)
 - [Security Policy](./SECURITY.md)
+
+## License
+
+AgentPM is licensed under the MIT License. See [LICENSE](./LICENSE).
