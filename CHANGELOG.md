@@ -8,6 +8,21 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.5.0] - 2026-05-19
+
+### Added
+
+- `agentpm source skills` (alias `agentpm source entries`) to list installable skills from a configured source or a direct repo locator, with optional `--target`, `--refresh`, and `--json` output.
+- `agentpm install --from <source-or-repo>` to install directly from a configured source, GitHub shorthand, Git URL, SSH URL, or local folder without forcing a separate search step first.
+- Interactive direct-repo install selection for multi-skill repositories, plus `--add-source` for explicit source persistence in non-interactive workflows.
+
+### Changed
+
+- Git source indexing now reuses the persistent checkout cache when possible, so `source add` followed by install no longer duplicates the remote checkout in the common Git-backed flow.
+- CLI help and getting-started docs now show the smoother source-listing and direct-repo install workflow.
+- `file://` repository locators are now treated as Git sources.
+- Workspace package versions were aligned to `0.5.0`.
+
 ## [0.4.0] - 2026-05-18
 
 ### Added

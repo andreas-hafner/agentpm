@@ -51,7 +51,6 @@ import {
   nowIso,
   slugify,
   toPosixPath,
-  type CacheRepoRecord,
   type CacheCleanOptions,
   type CacheCleanResult,
   type CatalogEntryRecord,
@@ -94,6 +93,8 @@ export interface InstallOptions {
   ref?: string | null | undefined;
   revision?: string | null | undefined;
   target?: AdapterId | undefined;
+  from?: string | undefined;
+  addSource?: boolean | undefined;
   yes?: boolean | undefined;
 }
 
@@ -143,6 +144,24 @@ interface PushCandidate {
   sourcePath: string;
   sourceRelativePath: string;
   destinationRelativePath: string;
+}
+
+export interface SourceSkillEntry {
+  name: string;
+  path: string | null;
+  adapter: AdapterId | null;
+  description: string | null;
+  repo: string;
+  sourceId: string | null;
+  sourceDisplayName: string;
+}
+
+export interface SourceEntriesResult {
+  sourceId: string | null;
+  sourceDisplayName: string;
+  sourceLocator: string;
+  persisted: boolean;
+  entries: SourceSkillEntry[];
 }
 
 const execFileAsync = promisify(execFile);
@@ -240,6 +259,126 @@ export class AgentPmService {
 
   listSources(): SourceRecord[] {
     return this.db.listSources();
+  }
+
+  async listSourceEntries(
+    sourceToken?: string,
+    options: { refresh?: boolean | undefined; target?: AdapterId | undefined } = {},
+  ): Promise<SourceEntriesResult> {
+    await this.initialize();
+
+    let source = sourceToken ? this.findSourceByToken(sourceToken) : null;
+    if (!source && !sourceToken) {
+      const sources = this.db.listSources();
+      if (sources.length === 0) {
+        throw new AgentPmError(
+          'No sources have been added yet. Use "agentpm source add <locator>" first.',
+        );
+      }
+      if (!this.prompts.selectOne) {
+        throw new AgentPmError(
+          'Listing source skills without a source requires an interactive TTY.',
+        );
+      }
+      source = await this.prompts.selectOne(
+        'Choose a source to inspect:',
+        sources.map((candidate) => ({
+          label: candidate.displayName,
+          description: candidate.locator,
+          value: candidate,
+        })),
+      );
+    }
+
+    if (source) {
+      if (options.refresh) {
+        await this.reindexSource(source);
+      }
+      const entries = this.db
+        .listCatalogEntriesBySource(source.id)
+        .filter((entry) => matchesCatalogEntryTarget(entry, options.target))
+        .map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          adapter: entry.adapterHint,
+          description: entry.description,
+          repo: entry.repo,
+          sourceId: source.id,
+          sourceDisplayName: source.displayName,
+        }));
+      return {
+        sourceId: source.id,
+        sourceDisplayName: source.displayName,
+        sourceLocator: source.locator,
+        persisted: true,
+        entries,
+      };
+    }
+
+    if (!sourceToken) {
+      throw new AgentPmError('A source token or locator is required.');
+    }
+
+    const kind = await this.classifySource(sourceToken);
+    const normalizedLocator = this.normalizeLocator(sourceToken, kind);
+    const displayName = displayNameFromLocator(normalizedLocator);
+    if (kind === 'registry') {
+      const registry = await loadRegistryIndex(normalizedLocator);
+      const entries = registry.entries
+        .filter(
+          (entry) =>
+            !options.target ||
+            !entry.target ||
+            entry.target === options.target ||
+            entry.adapterHint === options.target,
+        )
+        .map((entry) => ({
+          name: entry.name,
+          path: entry.path ?? null,
+          adapter: entry.target ?? entry.adapterHint ?? null,
+          description: entry.description ?? null,
+          repo: resolveRegistryRepo(normalizedLocator, entry.repo),
+          sourceId: null,
+          sourceDisplayName: displayName,
+        }));
+      return {
+        sourceId: null,
+        sourceDisplayName: displayName,
+        sourceLocator: normalizedLocator,
+        persisted: false,
+        entries,
+      };
+    }
+
+    const prepared = await this.prepareInspectionTarget(normalizedLocator, kind, {
+      sourceId: null,
+    });
+    try {
+      const entries = this.catalogEntriesFromInspection(
+        '__preview__',
+        normalizedLocator,
+        prepared.report,
+      )
+        .filter((entry) => matchesCatalogEntryTarget(entry, options.target))
+        .map((entry) => ({
+          name: entry.name,
+          path: entry.path,
+          adapter: entry.adapterHint,
+          description: entry.description,
+          repo: entry.repo,
+          sourceId: null,
+          sourceDisplayName: displayName,
+        }));
+      return {
+        sourceId: null,
+        sourceDisplayName: displayName,
+        sourceLocator: normalizedLocator,
+        persisted: false,
+        entries,
+      };
+    } finally {
+      await prepared.cleanup?.();
+    }
   }
 
   async refreshSources(
@@ -440,22 +579,6 @@ export class AgentPmService {
                 path.join(prepared.repoRoot, mapping.sourceRelativePath),
               )
             : null);
-
-        if (prepared.cacheKey) {
-          const cacheRecord: CacheRepoRecord = {
-            cacheKey: prepared.cacheKey,
-            sourceId: selection.source.id,
-            locator: prepared.contentLocator,
-            kind: prepared.contentKind,
-            basePath: this.cacheBasePath(prepared.cacheKey),
-            currentRevision: prepared.revision,
-            isGit: prepared.contentKind === 'git',
-            layoutSignature: prepared.report.layoutSignature,
-            metadata: {},
-            updatedAt: nowIso(),
-          };
-          this.db.saveCacheRepo(cacheRecord);
-        }
 
         const installId = makeId(
           'inst',
@@ -1702,45 +1825,20 @@ export class AgentPmService {
   private async reindexSource(source: SourceRecord): Promise<AddSourceResult> {
     if (source.kind === 'registry') {
       const registry = await loadRegistryIndex(source.locator);
-      const entries: CatalogEntryRecord[] = registry.entries.map((entry) => ({
-        id: makeId('cat', source.id, entry.name, entry.repo, entry.path ?? ''),
-        sourceId: source.id,
-        name: entry.name,
-        description: entry.description ?? null,
-        repo: resolveRegistryRepo(source.locator, entry.repo),
-        ref: entry.ref ?? null,
-        path: entry.path ?? null,
-        adapterHint: entry.target ?? entry.adapterHint ?? null,
-        tags: entry.tags ?? [],
-        metadata: {},
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      }));
+      const entries = this.catalogEntriesFromRegistry(source, registry.entries);
       this.db.replaceCatalogEntries(source.id, entries);
       return { source, indexedEntries: entries.length };
     }
 
-    const prepared = await this.prepareInspectionTarget(
-      source.locator,
-      source.kind,
-    );
+    const prepared = await this.prepareInspectionTarget(source.locator, source.kind, {
+      sourceId: source.id,
+    });
     try {
-      const entries: CatalogEntryRecord[] = listInstallableEntries(
+      const entries = this.catalogEntriesFromInspection(
+        source.id,
+        source.locator,
         prepared.report,
-      ).map((entry) => ({
-        id: makeId('cat', source.id, entry.name, entry.relativePath),
-        sourceId: source.id,
-        name: entry.name,
-        description: null,
-        repo: source.locator,
-        ref: null,
-        path: entry.relativePath,
-        adapterHint: entry.adapter,
-        tags: [entry.adapter, entry.kind],
-        metadata: {},
-        createdAt: nowIso(),
-        updatedAt: nowIso(),
-      }));
+      );
       this.db.replaceCatalogEntries(source.id, entries);
       return {
         source,
@@ -1750,6 +1848,56 @@ export class AgentPmService {
     } finally {
       await prepared.cleanup?.();
     }
+  }
+
+  private catalogEntriesFromRegistry(
+    source: Pick<SourceRecord, 'id' | 'locator'>,
+    entries: Array<{
+      name: string;
+      description?: string | undefined;
+      repo: string;
+      ref?: string | undefined;
+      path?: string | undefined;
+      adapterHint?: AdapterId | undefined;
+      target?: AdapterId | undefined;
+      tags?: string[] | undefined;
+    }>,
+  ): CatalogEntryRecord[] {
+    return entries.map((entry) => ({
+      id: makeId('cat', source.id, entry.name, entry.repo, entry.path ?? ''),
+      sourceId: source.id,
+      name: entry.name,
+      description: entry.description ?? null,
+      repo: resolveRegistryRepo(source.locator, entry.repo),
+      ref: entry.ref ?? null,
+      path: entry.path ?? null,
+      adapterHint: entry.target ?? entry.adapterHint ?? null,
+      tags: entry.tags ?? [],
+      metadata: {},
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    }));
+  }
+
+  private catalogEntriesFromInspection(
+    sourceId: string,
+    locator: string,
+    report: InspectionReport,
+  ): CatalogEntryRecord[] {
+    return listInstallableEntries(report).map((entry) => ({
+      id: makeId('cat', sourceId, entry.name, entry.relativePath),
+      sourceId,
+      name: entry.name,
+      description: null,
+      repo: locator,
+      ref: null,
+      path: entry.relativePath,
+      adapterHint: entry.adapter,
+      tags: [entry.adapter, entry.kind],
+      metadata: {},
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    }));
   }
 
   private annotateInspectionForRequest(
@@ -2209,6 +2357,7 @@ export class AgentPmService {
   private async prepareInspectionTarget(
     locator: string,
     kind: SourceKind,
+    options: { sourceId?: string | null } = {},
   ): Promise<PreparedContent> {
     if (kind === 'local') {
       const normalized = path.resolve(locator);
@@ -2227,22 +2376,167 @@ export class AgentPmService {
       };
     }
 
-    const release = await createTemporaryGitRelease(
-      locator,
-      [], // Empty array = FULL CHECKOUT! This guarantees that deep indexing discovers all skills in any arbitrary directory!
-      undefined,
-      this.env,
+    return this.prepareGitContent(locator, {
+      sourceId: options.sourceId ?? null,
+      sparsePaths: [],
+      requireFullCheckout: true,
+    });
+  }
+
+  private async resolveSourceForInstall(
+    sourceToken: string,
+    addSource = false,
+  ): Promise<SourceRecord> {
+    const existing = this.findSourceByToken(sourceToken);
+    if (existing) {
+      return existing;
+    }
+
+    const kind = await this.classifySource(sourceToken);
+    const normalizedLocator = this.normalizeLocator(sourceToken, kind);
+    if (addSource) {
+      return (await this.addSource(normalizedLocator)).source;
+    }
+
+    if (this.prompts.confirm) {
+      const shouldAdd = await this.prompts.confirm(
+        'Add this repo as an AgentPM source and continue?',
+        [normalizedLocator],
+      );
+      if (shouldAdd) {
+        return (await this.addSource(normalizedLocator)).source;
+      }
+    }
+
+    throw new AgentPmError(
+      `Source ${displayNameFromLocator(normalizedLocator)} is not configured. Re-run with --add-source or add it first using "agentpm source add ${normalizedLocator}".`,
     );
-    const report = await inspectRepository(release.releasePath, locator, 'git');
+  }
+
+  private async prepareGitContent(
+    locator: string,
+    options: {
+      sourceId: string | null;
+      ref?: string | null | undefined;
+      revision?: string | null | undefined;
+      sparsePaths: string[];
+      requireFullCheckout?: boolean | undefined;
+    },
+  ): Promise<PreparedContent> {
+    const requestedRef =
+      options.revision ?? options.ref ?? null;
+    const cacheKey = makeId('cache', locator, requestedRef ?? 'HEAD');
+    const cacheBasePath = this.cacheBasePath(cacheKey);
+    const existingCache = this.db.getCacheRepo(cacheKey);
+    const installCount = this.db.countInstallsForCacheKey(cacheKey);
+    const requireFullCheckout = Boolean(options.requireFullCheckout);
+    const hasFullCheckout =
+      existingCache?.metadata.fullCheckout === true;
+
+    if (requireFullCheckout && existingCache && !hasFullCheckout) {
+      if (installCount > 0) {
+        const release = await createTemporaryGitRelease(
+          locator,
+          [],
+          undefined,
+          this.env,
+        );
+        const report = await inspectRepository(release.releasePath, locator, 'git');
+        return {
+          report,
+          contentKind: 'git',
+          contentLocator: locator,
+          contentRef: requestedRef,
+          revision: release.revision,
+          repoRoot: release.releasePath,
+          cacheKey: null,
+          cleanup: async () => cleanupTemporaryRelease(release.releasePath),
+        };
+      }
+
+      await fs.rm(cacheBasePath, { recursive: true, force: true });
+      this.db.deleteCacheRepo(cacheKey);
+    }
+
+    const sparsePaths = requireFullCheckout
+      ? []
+      : normalizeSparsePaths(options.sparsePaths);
+    let release = await materializeGitRelease({
+      locator,
+      basePath: cacheBasePath,
+      sparsePaths,
+      ref: options.ref,
+      revision: options.revision ?? null,
+      env: this.env,
+    });
+    let report = await inspectRepository(release.releasePath, locator, 'git');
+
+    if (!requireFullCheckout && sparsePaths.length > 0) {
+      const detectedEntries = listInstallableEntries(report);
+      if (detectedEntries.length === 0) {
+        if (installCount > 0) {
+          const fallback = await createTemporaryGitRelease(
+            locator,
+            [],
+            options.ref ?? undefined,
+            this.env,
+          );
+          report = await inspectRepository(fallback.releasePath, locator, 'git');
+          return {
+            report,
+            contentKind: 'git',
+            contentLocator: locator,
+            contentRef: requestedRef,
+            revision: fallback.revision,
+            repoRoot: fallback.releasePath,
+            cacheKey: null,
+            cleanup: async () => cleanupTemporaryRelease(fallback.releasePath),
+          };
+        }
+
+        await fs.rm(cacheBasePath, { recursive: true, force: true });
+        this.db.deleteCacheRepo(cacheKey);
+        release = await materializeGitRelease({
+          locator,
+          basePath: cacheBasePath,
+          sparsePaths: [],
+          ref: options.ref,
+          revision: options.revision ?? null,
+          env: this.env,
+        });
+        report = await inspectRepository(release.releasePath, locator, 'git');
+      }
+    }
+
+    const metadata = {
+      ...(existingCache?.metadata ?? {}),
+      fullCheckout:
+        requireFullCheckout ||
+        existingCache?.metadata.fullCheckout === true ||
+        sparsePaths.length === 0,
+      sparsePaths,
+    };
+    this.db.saveCacheRepo({
+      cacheKey,
+      sourceId: options.sourceId ?? existingCache?.sourceId ?? null,
+      locator,
+      kind: 'git',
+      basePath: cacheBasePath,
+      currentRevision: release.revision,
+      isGit: true,
+      layoutSignature: report.layoutSignature,
+      metadata,
+      updatedAt: nowIso(),
+    });
+
     return {
       report,
       contentKind: 'git',
       contentLocator: locator,
-      contentRef: null,
+      contentRef: requestedRef,
       revision: release.revision,
       repoRoot: release.releasePath,
-      cacheKey: null,
-      cleanup: async () => cleanupTemporaryRelease(release.releasePath),
+      cacheKey,
     };
   }
 
@@ -2250,6 +2544,77 @@ export class AgentPmService {
     names: string[],
     options: InstallOptions,
   ): Promise<Array<{ source: SourceRecord; entry: CatalogEntryRecord }>> {
+    const forcedSource = options.from
+      ? await this.resolveSourceForInstall(options.from, options.addSource)
+      : null;
+    const requestedNames =
+      options.skills && options.skills.length > 0 ? options.skills : names;
+
+    if (forcedSource) {
+      const entries = this.db
+        .listCatalogEntriesBySource(forcedSource.id)
+        .filter((entry) => matchesCatalogEntryTarget(entry, options.target));
+
+      if (entries.length === 0) {
+        const targetSummary = options.target ? ` for ${options.target}` : '';
+        throw new AgentPmError(
+          `No installable entries${targetSummary} were found in source ${forcedSource.displayName}. Run "agentpm source skills ${forcedSource.id}" or "agentpm inspect ${forcedSource.locator}" for details.`,
+        );
+      }
+
+      if (options.all) {
+        const filtered = entries.filter(
+          (entry) =>
+            requestedNames.length === 0 ||
+            requestedNames.some((skillSelector) =>
+              matchesCatalogEntrySelector(entry, skillSelector),
+            ),
+        );
+        if (filtered.length === 0) {
+          const targetSummary = options.target ? ` for ${options.target}` : '';
+          throw new AgentPmError(
+            `No requested skills${targetSummary} were found in source ${forcedSource.displayName}.`,
+          );
+        }
+        return filtered.map((entry) => ({ source: forcedSource, entry }));
+      }
+
+      if (requestedNames.length > 0) {
+        return this.resolveNamedSelectionsFromSource(
+          forcedSource,
+          entries,
+          requestedNames,
+          options.target,
+        );
+      }
+
+      if (entries.length === 1) {
+        return [{ source: forcedSource, entry: entries[0]! }];
+      }
+
+      if (this.prompts.selectMany) {
+        const selected = await this.prompts.selectMany(
+          `Choose skills to install from ${forcedSource.displayName}:`,
+          entries.map((entry) => ({
+            label: entry.name,
+            description: `${entry.adapterHint ?? 'unknown'}  ${entry.path ?? entry.repo}`,
+            value: entry,
+          })),
+        );
+        if (selected.length === 0) {
+          return [];
+        }
+        return selected.map((entry) => ({ source: forcedSource, entry }));
+      }
+
+      const available = entries
+        .map((entry) => `  - ${entry.name} (${entry.path ?? entry.repo})`)
+        .join('\n');
+      throw new AgentPmError(
+        `Multiple installable entries were found in source ${forcedSource.displayName}. Re-run interactively, pass --skill <name>, or use --all.\n\nAvailable entries:\n${available}`,
+      );
+    }
+
     const sources = this.db.listSources();
     if (sources.length === 0) {
       throw new AgentPmError(
@@ -2318,8 +2683,6 @@ export class AgentPmService {
       }
     }
 
-    const requestedNames =
-      options.skills && options.skills.length > 0 ? options.skills : names;
     if (requestedNames.length === 0) {
       if (!this.prompts.selectOne) {
         throw new AgentPmError(
@@ -2409,6 +2772,54 @@ export class AgentPmService {
     return selections;
   }
 
+  private async resolveNamedSelectionsFromSource(
+    source: SourceRecord,
+    entries: CatalogEntryRecord[],
+    selectors: string[],
+    target?: AdapterId,
+  ): Promise<Array<{ source: SourceRecord; entry: CatalogEntryRecord }>> {
+    const selections: Array<{ source: SourceRecord; entry: CatalogEntryRecord }> =
+      [];
+    for (const selector of selectors) {
+      const matches = entries.filter((entry) =>
+        matchesCatalogEntrySelector(entry, selector),
+      );
+      if (matches.length === 0) {
+        const targetSummary = target ? ` for target "${target}"` : '';
+        throw new AgentPmError(
+          `No catalog entry named "${selector}"${targetSummary} found in source ${source.displayName}.`,
+        );
+      }
+
+      let entry = matches[0]!;
+      if (matches.length > 1) {
+        if (!this.prompts.selectOne) {
+          const available = matches
+            .map(
+              (candidate) =>
+                `  - ${candidate.name} (${candidate.path ?? candidate.repo})`,
+            )
+            .join('\n');
+          throw new AgentPmError(
+            `Multiple entries named "${selector}" were found in source ${source.displayName}. Re-run interactively or use a more specific path selector.\n\nMatches:\n${available}`,
+          );
+        }
+        entry = await this.prompts.selectOne(
+          `Choose which "${selector}" entry to install from ${source.displayName}:`,
+          matches.map((candidate) => ({
+            label: candidate.name,
+            description: `${candidate.adapterHint ?? 'unknown'}  ${candidate.path ?? candidate.repo}`,
+            value: candidate,
+          })),
+        );
+      }
+
+      selections.push({ source, entry });
+    }
+
+    return selections;
+  }
+
   private async resolveScope(scope?: InstallScope): Promise<InstallScope> {
     if (scope) {
       return scope;
@@ -2461,55 +2872,12 @@ export class AgentPmService {
         cacheKey: null,
       };
     }
-
-    const cacheKey = makeId('cache', contentLocator, requestedRef ?? 'HEAD');
-    const cacheBasePath = this.cacheBasePath(cacheKey);
-    let release = await materializeGitRelease({
-      locator: contentLocator,
-      basePath: cacheBasePath,
-      sparsePaths: normalizeSparsePaths([
-        entry.path ?? '',
-        ...DEFAULT_DISCOVERY_PATHS,
-      ]),
+    return this.prepareGitContent(contentLocator, {
+      sourceId: source.id,
       ref: requestedRef,
       revision: overrides.revision ?? null,
-      env: this.env,
+      sparsePaths: [entry.path ?? '', ...DEFAULT_DISCOVERY_PATHS],
     });
-
-    let report = await inspectRepository(
-      release.releasePath,
-      contentLocator,
-      source.kind === 'local' ? 'local' : 'git',
-    );
-
-    const entries = listInstallableEntries(report);
-    if (entries.length === 0) {
-      // Fallback: if sparse checkout yielded no entries, do a full checkout!
-      await fs.rm(cacheBasePath, { recursive: true, force: true });
-      release = await materializeGitRelease({
-        locator: contentLocator,
-        basePath: cacheBasePath,
-        sparsePaths: [], // Empty array = FULL CHECKOUT!
-        ref: requestedRef,
-        revision: overrides.revision ?? null,
-        env: this.env,
-      });
-      report = await inspectRepository(
-        release.releasePath,
-        contentLocator,
-        source.kind === 'local' ? 'local' : 'git',
-      );
-    }
-
-    return {
-      report,
-      contentKind,
-      contentLocator,
-      contentRef: requestedRef,
-      revision: release.revision,
-      repoRoot: release.releasePath,
-      cacheKey,
-    };
   }
 
   private async prepareGitCandidateFromInstall(

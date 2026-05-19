@@ -481,6 +481,7 @@ export function classifyLocator(locator: string): SourceKind {
   }
   if (
     isHttpUrl(normalized) ||
+    normalized.startsWith('file://') ||
     isGitSshLocator(normalized) ||
     normalized.endsWith('.git')
   ) {

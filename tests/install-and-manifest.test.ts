@@ -175,6 +175,61 @@ describe('install and manifest flows', () => {
     }
   });
 
+  test('lists installable skills from a direct repo locator without adding a source', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const result = await service.listSourceEntries(sourceDir);
+      expect(result.persisted).toBe(false);
+      expect(result.entries.map((entry) => entry.name)).toEqual(['skill-b']);
+      expect(service.listSources()).toHaveLength(0);
+    } finally {
+      service.close();
+    }
+  });
+
+  test('installs selected skills from --from and adds the source after confirmation', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+      prompts: {
+        confirm: () => Promise.resolve(true),
+        selectMany: (_message, options) =>
+          Promise.resolve(
+            options
+              .filter((option) => option.label === 'skill-b')
+              .map((option) => option.value),
+          ),
+      },
+    });
+    try {
+      const installs = await service.install([], {
+        from: sourceDir,
+        scope: 'project',
+      });
+      expect(installs).toHaveLength(1);
+      expect(installs[0]?.name).toBe('skill-b');
+      expect(
+        await fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b')),
+      ).toBeTruthy();
+      expect(service.listSources()).toHaveLength(1);
+    } finally {
+      service.close();
+    }
+  });
+
   test('sync reads agentpm.yaml, resolves sources in order, and excludes generated targets locally', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const sourceDir = await makeTempDir('agentpm-source-');

@@ -12,7 +12,9 @@ The publishable MVP centers on a committed `agentpm.yaml`: projects declare the 
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
 - Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
+- `agentpm source skills` to preview installable entries from a configured source or a direct repo locator
 - Search hints when configured source indexes may be stale, with `agentpm search --refresh` for one-step refresh and search
+- `agentpm install --from <repo-or-source>` for one-command repo install flows without a separate search step
 - Runtime context resolution across global, project, and temporary layers without writing project runtime folders
 - Diagnostics for malformed config, unavailable sources, missing generated targets, broken links, and tracked generated artifacts
 - Interactive update previews for Git-backed installs, layout migration warnings, and local source drift checks
@@ -117,8 +119,10 @@ The smoke test builds the workspace, runs the packaged `agentpm` bin with an iso
 
 ```bash
 agentpm source add ./examples/repos/codex-sample
+agentpm source skills github:company/private-skills
 agentpm inspect ./examples/repos/codex-sample --skill audio-mastering --target codex
 agentpm search audio --refresh
+agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source
 agentpm install audio-mastering --project --target codex
 agentpm resolve --temp release-helper
 agentpm sync

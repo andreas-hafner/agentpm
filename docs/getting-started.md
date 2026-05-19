@@ -75,10 +75,14 @@ Source entries may be full Git URLs or shorthands such as `skills.sh`, `github:o
 
 Adding a source immediately rebuilds the local searchable index for that source. Use `agentpm refresh` to rebuild all configured source indexes later, or pass source ids or locators to refresh only selected sources. `agentpm search --refresh <query>` refreshes before searching when you expect new Git repository entries, and normal search prints a stale-index hint when no matches are found. `agentpm update --refresh` refreshes source indexes before showing the update preview.
 
+If you want to inspect a private repo before adding it, use `agentpm source skills <repo-or-source>`. If you already know which repo you want, `agentpm install --from <repo-or-source>` can add the source, let you choose installable skills, and install them in one flow.
+
 ## Recommended flow
 
 ```bash
 agentpm source add git@github.com:company/private-skills.git
+agentpm source skills git@github.com:company/private-skills.git
+agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source
 agentpm source add registry:https://registry.example.com/agentpm/index.yaml
 agentpm inspect git@github.com:company/private-skills.git --target codex
 agentpm refresh

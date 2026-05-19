@@ -367,6 +367,34 @@ function printDoctorFixes(
   console.log('');
 }
 
+function printSourceEntries(
+  result: Awaited<ReturnType<AgentPmService['listSourceEntries']>>,
+): void {
+  section('Source Skills');
+  console.log(
+    `  ${symbols.bullet} source       : ${style.bold(result.sourceDisplayName)}`,
+  );
+  console.log(
+    `  ${symbols.bullet} locator      : ${result.sourceLocator}`,
+  );
+  console.log(
+    `  ${symbols.bullet} persisted    : ${result.persisted ? style.green('yes') : style.yellow('no')}`,
+  );
+
+  if (result.entries.length === 0) {
+    console.log(`\n  ${symbols.info} No installable skills were found.\n`);
+    return;
+  }
+
+  console.log('');
+  for (const entry of result.entries) {
+    console.log(
+      `  ${symbols.success} ${style.bold(entry.name)} ${style.gray('·')} ${(entry.adapter ?? 'unknown').padEnd(7)} ${entry.path ?? entry.repo}`,
+    );
+  }
+  console.log('');
+}
+
 async function checkFirstStart(service: AgentPmService): Promise<void> {
   const sources = service.listSources();
   if (sources.length > 0) {
@@ -411,7 +439,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.4.0')
+  .version('0.5.0')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock())
@@ -420,7 +448,9 @@ program
     `
 Examples:
   agentpm source add git@github.com:company/skills.git
+  agentpm source skills github:company/private-skills
   agentpm search pdf --refresh
+  agentpm install --from github:company/private-skills
   agentpm sync
   agentpm update --refresh
   agentpm doctor --fix
@@ -438,7 +468,9 @@ source
   .command('add')
   .argument('<locator>', 'Git URL, local folder, or registry index path')
   .action(async (locator: string) => {
-    const result = await withService((service) => service.addSource(locator));
+    const result = await withService((service) => service.addSource(locator), {
+      checkFirstStart: false,
+    });
     console.log(
       `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
     );
@@ -447,6 +479,9 @@ source
 source.command('list').action(async () => {
   const sources = await withService((service) =>
     Promise.resolve(service.listSources()),
+    {
+      checkFirstStart: false,
+    },
   );
   if (sources.length === 0) {
     console.log('No sources configured.');
@@ -458,10 +493,44 @@ source.command('list').action(async () => {
 });
 
 source
+  .command('skills')
+  .alias('entries')
+  .argument('[source]', 'Configured source id, locator, or a direct repo locator')
+  .option('--refresh', 'Refresh the configured source before listing')
+  .option('--target <target>', 'Filter entries for codex, claude, or generic')
+  .option('--json', 'Print machine-readable JSON')
+  .action(
+    async (
+      sourceToken: string | undefined,
+      flags: { refresh?: boolean; target?: string; json?: boolean },
+    ) => {
+      const result = await withService(
+        (service) =>
+          service.listSourceEntries(sourceToken, {
+            ...(flags.refresh ? { refresh: true } : {}),
+            ...(flags.target
+              ? { target: resolveTarget(flags.target) }
+              : {}),
+          }),
+        {
+          checkFirstStart: false,
+        },
+      );
+      if (flags.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      printSourceEntries(result);
+    },
+  );
+
+source
   .command('remove')
   .argument('<source>', 'Source id or locator')
   .action(async (sourceToken: string) => {
-    await withService((service) => service.removeSource(sourceToken));
+    await withService((service) => service.removeSource(sourceToken), {
+      checkFirstStart: false,
+    });
     console.log(
       `\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`,
     );
@@ -632,6 +701,8 @@ program
   .command('install')
   .alias('add')
   .argument('[names...]', 'Skill names or source token for --all/--skill flows')
+  .option('--from <source>', 'Install from a configured source or direct repo locator')
+  .option('--add-source', 'Add a direct repo locator as a source before installing')
   .option('--global', 'Install to the global native target')
   .option('--project', 'Install to the current project')
   .option('--workspace', 'Install to a workspace root')
@@ -643,10 +714,13 @@ program
     '--target <target>',
     'Install only entries for codex, claude, or generic',
   )
+  .option('--yes', 'Accept safe install prompts automatically')
   .action(
     async (
       names: string[],
       flags: InstallOptions & {
+        from?: string;
+        addSource?: boolean;
         global?: boolean;
         project?: boolean;
         workspace?: boolean;
@@ -654,17 +728,25 @@ program
         skill?: string[];
         ref?: string;
         target?: string;
+        yes?: boolean;
       },
     ) => {
-      const installs = await withService((service) =>
-        service.install(names, {
-          scope: resolveScope(flags),
-          workspaceRoot: flags.workspaceRoot,
-          all: flags.all,
-          skills: flags.skill,
-          ref: flags.ref ?? null,
-          target: resolveTarget(flags.target),
-        }),
+      const installs = await withService(
+        (service) =>
+          service.install(names, {
+            scope: resolveScope(flags),
+            workspaceRoot: flags.workspaceRoot,
+            all: flags.all,
+            skills: flags.skill,
+            ref: flags.ref ?? null,
+            target: resolveTarget(flags.target),
+            from: flags.from,
+            addSource: flags.addSource,
+            yes: flags.yes,
+          }),
+        {
+          checkFirstStart: !flags.from,
+        },
       );
       for (const install of installs) {
         console.log(

@@ -193,6 +193,33 @@ describe('update and cli flows', () => {
     }
   }, 15000);
 
+  test('source add and install reuse a single cached checkout for the same git repo', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const repoLocator = pathToFileURL(repoDir).href;
+      await service.addSource(repoLocator);
+      expect(service.db.listCacheRepos()).toHaveLength(1);
+
+      const installs = await service.install(['skill-a'], { scope: 'project' });
+      expect(installs).toHaveLength(1);
+      expect(service.db.listCacheRepos()).toHaveLength(1);
+      expect(service.db.listCacheRepos()[0]?.cacheKey).toBe(
+        installs[0]?.cacheKey,
+      );
+    } finally {
+      service.close();
+    }
+  }, 15000);
+
   test('doctor plans and applies a transparent fix for an unused missing source', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const sourceDir = await makeTempDir('agentpm-source-');
@@ -339,6 +366,8 @@ describe('update and cli flows', () => {
     expect(stdout).toContain('cache');
     expect(stdout).toContain('search pdf --refresh');
     expect(stdout).toContain('cache clean --dry-run');
+    expect(stdout).toContain('source skills');
+    expect(stdout).toContain('install --from');
     expect(stdout).toContain('target add production');
   }, 15000);
 });
