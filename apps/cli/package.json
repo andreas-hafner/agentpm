@@ -17,7 +17,7 @@
   ],
   "scripts": {
     "build": "tsup src/index.ts --format esm --target node24 --clean",
-    "dev": "tsx src/index.ts",
+    "dev": "tsx --tsconfig ../../tsconfig.json src/index.ts",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {

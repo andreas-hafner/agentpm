@@ -21,6 +21,29 @@ const cliEntry = path.resolve('apps/cli/src/index.ts');
 const tsxLoader = pathToFileURL(
   path.resolve('node_modules/tsx/dist/loader.mjs'),
 ).href;
+const rootTsconfig = path.resolve('tsconfig.json');
+
+async function runCli(
+  args: string[],
+  options: {
+    cwd: string;
+    env?: NodeJS.ProcessEnv;
+  },
+) {
+  return execFileAsync(
+    process.execPath,
+    ['--import', tsxLoader, cliEntry, ...args],
+    {
+      cwd: options.cwd,
+      env: {
+        ...process.env,
+        ...options.env,
+        TSX_DISABLE_CACHE: '1',
+        TSX_TSCONFIG_PATH: rootTsconfig,
+      },
+    },
+  );
+}
 
 describe('update and cli flows', () => {
   test('detects and applies updates from a local git source', async () => {
@@ -84,14 +107,10 @@ describe('update and cli flows', () => {
     git(repoDir, 'add', '.');
     git(repoDir, 'commit', '-m', 'update skill for cli');
 
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      ['--import', tsxLoader, cliEntry, 'update', 'skill-a', '--yes'],
-      {
-        cwd: projectDir,
-        env: { ...process.env, AGENTPM_HOME: homeDir },
-      },
-    );
+    const { stdout } = await runCli(['update', 'skill-a', '--yes'], {
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     expect(stdout).toContain('Update complete');
     expect(stdout).toContain('1 item(s) updated');
     expect(
@@ -321,44 +340,25 @@ describe('update and cli flows', () => {
     git(repoDir, 'add', '.');
     git(repoDir, 'commit', '-m', 'add new skill');
 
-    const stale = await execFileAsync(
-      process.execPath,
-      ['--import', tsxLoader, cliEntry, 'search', 'new-skill'],
-      {
-        cwd: repoDir,
-        env: { ...process.env, AGENTPM_HOME: homeDir },
-      },
-    );
+    const stale = await runCli(['search', 'new-skill'], {
+      cwd: repoDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     expect(stale.stdout).toContain('No matches found.');
     expect(stale.stdout).toContain('Indexes may be stale');
 
-    const refreshed = await execFileAsync(
-      process.execPath,
-      [
-        '--import',
-        tsxLoader,
-        cliEntry,
-        'search',
-        'new-skill',
-        '--refresh',
-      ],
-      {
-        cwd: repoDir,
-        env: { ...process.env, AGENTPM_HOME: homeDir },
-      },
-    );
+    const refreshed = await runCli(['search', 'new-skill', '--refresh'], {
+      cwd: repoDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
     expect(refreshed.stdout).toContain('Source Refresh');
     expect(refreshed.stdout).toContain('catalog  new-skill');
   }, 15000);
 
   test('prints CLI help through tsx', async () => {
-    const { stdout } = await execFileAsync(
-      process.execPath,
-      ['--import', tsxLoader, cliEntry, '--help'],
-      {
-        cwd: path.resolve('.'),
-      },
-    );
+    const { stdout } = await runCli(['--help'], {
+      cwd: path.resolve('.'),
+    });
     expect(stdout).toContain('Git-native skill and agent asset manager');
     expect(stdout).toContain('source');
     expect(stdout).toContain('install');
