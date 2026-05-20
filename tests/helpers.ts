@@ -7,16 +7,21 @@ export async function makeTempDir(prefix: string): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
-export async function copyDir(source: string, destination: string): Promise<void> {
+export async function copyDir(
+  source: string,
+  destination: string,
+): Promise<void> {
   await fs.mkdir(path.dirname(destination), { recursive: true });
   await fs.cp(source, destination, { recursive: true });
 }
 
-export function git(cwd: string, ...args: string[]): void {
-  execFileSync('git', args, {
+export function git(cwd: string, ...args: string[]): string {
+  return execFileSync('git', args, {
     cwd,
     stdio: 'pipe',
-  });
+  })
+    .toString('utf8')
+    .trim();
 }
 
 export function initFixtureGitRepo(repoPath: string): void {
@@ -27,7 +32,10 @@ export function initFixtureGitRepo(repoPath: string): void {
   git(repoPath, 'commit', '-m', 'initial');
 }
 
-export async function writeFile(targetPath: string, content: string): Promise<void> {
+export async function writeFile(
+  targetPath: string,
+  content: string,
+): Promise<void> {
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.writeFile(targetPath, content, 'utf8');
 }

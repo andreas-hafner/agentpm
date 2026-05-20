@@ -327,6 +327,38 @@ export interface PromptApi {
   confirm?(message: string, details?: string[]): Promise<boolean>;
 }
 
+export interface RefreshSourceResult {
+  source: SourceRecord;
+  indexedEntries: number;
+}
+
+export interface CacheCleanOptions {
+  dryRun?: boolean | undefined;
+}
+
+export interface CacheCleanResult {
+  removedEntries: number;
+  removedPaths: string[];
+  dryRun: boolean;
+}
+
+export type DoctorFixAction =
+  | {
+      code: 'remove-source';
+      sourceId: string;
+      description: string;
+    }
+  | {
+      code: 'remove-install-record';
+      installId: string;
+      description: string;
+    };
+
+export interface DoctorFixResult {
+  action: DoctorFixAction;
+  applied: boolean;
+}
+
 export function nowIso(): string {
   return new Date().toISOString();
 }
@@ -449,6 +481,7 @@ export function classifyLocator(locator: string): SourceKind {
   }
   if (
     isHttpUrl(normalized) ||
+    normalized.startsWith('file://') ||
     isGitSshLocator(normalized) ||
     normalized.endsWith('.git')
   ) {

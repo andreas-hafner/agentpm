@@ -24,7 +24,7 @@ entries:
 
 - Add a registry index with `agentpm source add <path-or-url-to-index>`.
 - Use `registry:<path-or-url-to-index>` when a source should be treated as a registry even if the locator does not end in `.yaml`, `.yml`, or `.json`.
-- Registry search is limited to configured sources.
+- Registry search is backed by local indexes for configured sources. Rebuild indexes with `agentpm refresh`.
 - Installing a registry entry resolves the underlying repo and path, then follows the normal adapter and cache flow.
 - Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. AgentPM reads those tokens from the environment but does not store them.
 - Project configs should reference registry sources by top-level source `id`:

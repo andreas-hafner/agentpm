@@ -4,7 +4,13 @@ import { describe, expect, test } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
 
-import { copyDir, makeTempDir, writeFile } from './helpers';
+import {
+  copyDir,
+  git,
+  initFixtureGitRepo,
+  makeTempDir,
+  writeFile,
+} from './helpers';
 
 const fixturesRoot = path.resolve('tests/fixtures/repos');
 
@@ -60,6 +66,39 @@ describe('inspect and search', () => {
       service.close();
     }
   });
+
+  test('refresh rebuilds a git source index after repository changes', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    await copyDir(path.join(fixturesRoot, 'codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    const service = new AgentPmService({
+      cwd: repoDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(repoDir);
+      expect(service.search('new-skill')).toHaveLength(0);
+
+      await writeFile(
+        path.join(repoDir, '.codex', 'skills', 'new-skill', 'SKILL.md'),
+        '# New Skill\n',
+      );
+      git(repoDir, 'add', '.');
+      git(repoDir, 'commit', '-m', 'add new skill');
+
+      const results = await service.refreshSources();
+      expect(results[0]?.indexedEntries).toBe(2);
+      expect(
+        service
+          .search('new-skill')
+          .some((result) => result.name === 'new-skill'),
+      ).toBe(true);
+    } finally {
+      service.close();
+    }
+  }, 15000);
 
   test('detects plain skills folder repositories and install-script risk', async () => {
     const homeDir = await makeTempDir('agentpm-home-');

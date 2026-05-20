@@ -73,15 +73,26 @@ Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM resto
 
 Source entries may be full Git URLs or shorthands such as `skills.sh`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 
+Adding a source immediately rebuilds the local searchable index for that source. Use `agentpm refresh` to rebuild all configured source indexes later, or pass source ids or locators to refresh only selected sources. `agentpm search --refresh <query>` refreshes before searching when you expect new Git repository entries, and normal search prints a stale-index hint when no matches are found. `agentpm update --refresh` refreshes source indexes before showing the update preview.
+
+If you want to inspect a private repo before adding it, use `agentpm source skills <repo-or-source>`. If you already know which repo you want, `agentpm install --from <repo-or-source>` can add the source, let you choose installable skills, and install them in one flow.
+
 ## Recommended flow
 
 ```bash
 agentpm source add git@github.com:company/private-skills.git
+agentpm source skills git@github.com:company/private-skills.git
+agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source
 agentpm source add registry:https://registry.example.com/agentpm/index.yaml
 agentpm inspect git@github.com:company/private-skills.git --target codex
+agentpm refresh
+agentpm search audio --refresh
 agentpm sync
+agentpm update --refresh
 agentpm resolve --json
-agentpm doctor
+agentpm cache clean --dry-run
+agentpm doctor --fix
+agentpm target add production git@github.com:company/pushed-skills.git --default
 ```
 
-`agentpm doctor` checks malformed project config, unavailable sources, missing generated targets, broken links, missing cache entries, and generated skill folders that were accidentally committed to Git.
+`agentpm update` first prints a dry-run preview and prompts before applying available updates, then prints a success summary for applied changes. `agentpm cache clean` removes unused Git checkout caches under `AGENTPM_HOME/cache/repos`; active install caches and the searchable source index are preserved. `agentpm doctor` checks malformed project config, unavailable sources, missing generated targets, broken links, missing cache entries, and generated skill folders that were accidentally committed to Git. `agentpm doctor --fix` lists each safe fix it intends to apply and asks for confirmation before removing unreachable unused sources or stale install records.

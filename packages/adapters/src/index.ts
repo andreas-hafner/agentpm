@@ -295,15 +295,20 @@ function createAdapter(id: AdapterId): SkillAdapter {
         '.codex.cloud',
         '.claude',
         '.agents',
-        'skills',
         'subagents',
       ]);
       const firstSegment = entry.relativePath.split('/')[0] ?? '';
       const isStandardLayout = standardRoots.has(firstSegment);
+      const plainSkillsRelativePath =
+        firstSegment === 'skills'
+          ? entry.relativePath.split('/').slice(1).join('/')
+          : null;
 
       const targetRelativePath = isStandardLayout
         ? entry.relativePath
-        : toPosixPath(path.join(targetRoot, entry.name));
+        : plainSkillsRelativePath
+          ? toPosixPath(path.join('.agents/skills', plainSkillsRelativePath))
+          : toPosixPath(path.join(targetRoot, entry.name));
 
       return {
         name: entry.name,

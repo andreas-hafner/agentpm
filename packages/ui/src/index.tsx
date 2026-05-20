@@ -86,7 +86,7 @@ function ConfirmComponent({
   details,
   resolve,
 }: ConfirmComponentProps): React.JSX.Element {
-  const [value, setValue] = useState(true);
+  const [value, setValue] = useState(false);
   const { exit } = useApp();
   const options = useMemo(() => ['Yes', 'No'], []);
 

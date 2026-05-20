@@ -110,9 +110,6 @@ importers:
       '@agentpm/shared':
         specifier: workspace:*
         version: link:../shared
-      simple-git:
-        specifier: ^3.28.0
-        version: 3.36.0
 
   packages/db:
     dependencies:
