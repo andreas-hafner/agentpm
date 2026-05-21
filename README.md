@@ -1,10 +1,21 @@
-# AgentPM
+<h1 align="center">AgentPM</h1>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-0f766e.svg)](./LICENSE)
-[![CI](https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg)](https://github.com/travelhawk/agentpm/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.5.1-2563eb.svg)](./apps/cli/package.json)
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="MIT License" /></a>
+  <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.5.1-2563eb.svg" alt="Version 0.5.1" /></a>
+</p>
 
-AgentPM is a Git-native CLI for discovering, installing, and updating AI skills from repos, folders, and registries without forcing teams into a new package format or flattening native layouts.
+<p align="center">
+  <strong>Git-native skill installs and team sync for AI coding workflows.</strong><br />
+  Discover, install, update, and push skills from repos, folders, and registries without inventing a new package format or flattening native layouts.
+</p>
+
+<p align="center">
+  <img src="./docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
+</p>
+
+## Install
 
 ```bash
 git clone https://github.com/travelhawk/agentpm.git
@@ -15,12 +26,6 @@ agentpm --help
 ```
 
 AgentPM works in two modes: local installs stay local by default, while a committed `agentpm.yaml` turns a repo into a shared contract for reproducible skill sync. Generated skill folders, caches, symlinks, and credentials stay local.
-
-## See it work
-
-Install a skill from a source, then push it to a target repo in one short VHS walkthrough.
-
-![AgentPM add and push demo](./docs/assets/agentpm-demo.gif)
 
 ## Features
 
