@@ -22,6 +22,7 @@ import {
   type ManifestFile,
   type ManifestInstallSpec,
   type ManifestPushTargetSpec,
+  type ManifestSourceSpec,
   type ProjectConfigFile,
   type ProjectSkillSpec,
   type ProjectSourceSpec,
@@ -422,6 +423,83 @@ function mergeManifests(
   };
 }
 
+function isSimpleProjectInstall(install: ManifestInstallSpec): boolean {
+  return (
+    install.scope === 'project' &&
+    !install.source &&
+    !install.ref &&
+    !install.revision &&
+    !install.target &&
+    !install.adapter &&
+    !install.workspaceRoot &&
+    install.items.length === 1 &&
+    install.items[0] === install.name
+  );
+}
+
+function manifestInstallToProjectSkillSpec(
+  install: ManifestInstallSpec,
+): ProjectSkillSpec {
+  if (isSimpleProjectInstall(install)) {
+    return install.name;
+  }
+
+  return {
+    name: install.name,
+    source: install.source,
+    items: install.items,
+    scope: install.scope,
+    ref: install.ref,
+    revision: install.revision,
+    target: install.target ?? install.adapter,
+    adapter: install.adapter ?? install.target,
+    workspaceRoot: install.workspaceRoot,
+  };
+}
+
+function mergeManifestSources(
+  existing: ManifestSourceSpec[],
+  additions: ManifestSourceSpec[],
+): ManifestSourceSpec[] {
+  const merged = [...existing];
+
+  for (const source of additions) {
+    const index = merged.findIndex(
+      (candidate) =>
+        (source.id && candidate.id === source.id) ||
+        candidate.locator === source.locator,
+    );
+    if (index >= 0) {
+      merged[index] = {
+        ...merged[index],
+        ...source,
+      };
+    } else {
+      merged.push(source);
+    }
+  }
+
+  return merged;
+}
+
+function mergeManifestInstalls(
+  existing: ManifestInstallSpec[],
+  additions: ManifestInstallSpec[],
+): ManifestInstallSpec[] {
+  const merged = [...existing];
+
+  for (const install of additions) {
+    const index = merged.findIndex((candidate) => candidate.name === install.name);
+    if (index >= 0) {
+      merged[index] = install;
+    } else {
+      merged.push(install);
+    }
+  }
+
+  return merged;
+}
+
 export async function loadProjectConfig(
   cwd: string,
 ): Promise<LoadedProjectConfig | null> {
@@ -479,6 +557,36 @@ export async function saveProjectConfig(
 ): Promise<string> {
   const configPath = path.join(cwd, PROJECT_CONFIG_FILENAME);
   await writeTextFile(configPath, stringifyYaml(config));
+  return configPath;
+}
+
+export async function upsertProjectConfigInstalls(
+  cwd: string,
+  options: {
+    sources: ManifestSourceSpec[];
+    installs: ManifestInstallSpec[];
+  },
+): Promise<string> {
+  const configPath = path.join(cwd, PROJECT_CONFIG_FILENAME);
+  if (!(await pathExists(configPath))) {
+    throw new AgentPmError(`No ${PROJECT_CONFIG_FILENAME} found in ${cwd}.`);
+  }
+
+  const parsed =
+    parseYaml<Record<string, unknown>>(await readTextFile(configPath)) ?? {};
+  const record = requireRecord(parsed, 'project config');
+  const manifest = normalizeProjectConfig(record);
+  const nextSources = mergeManifestSources(manifest.sources, options.sources);
+  const nextInstalls = mergeManifestInstalls(manifest.installs, options.installs);
+
+  await saveProjectConfig(cwd, {
+    version: manifest.version,
+    scope: optionalScope(record.scope, 'scope'),
+    sources: nextSources,
+    targets: manifest.targets,
+    skills: nextInstalls.map((install) => manifestInstallToProjectSkillSpec(install)),
+  });
+
   return configPath;
 }
 

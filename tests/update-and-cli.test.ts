@@ -16,6 +16,21 @@ import {
   writeFile,
 } from './helpers';
 
+async function writeGitGlobalIgnoreConfig(
+  rootDir: string,
+  patterns: string[],
+): Promise<string> {
+  const ignorePath = path.join(rootDir, 'global-ignore');
+  const configPath = path.join(rootDir, 'gitconfig');
+  await fs.writeFile(ignorePath, `${patterns.join('\n')}\n`, 'utf8');
+  await fs.writeFile(
+    configPath,
+    `[core]\n    excludesfile = ${ignorePath.replace(/\\/g, '/')}\n`,
+    'utf8',
+  );
+  return configPath;
+}
+
 const execFileAsync = promisify(execFile);
 const cliEntry = path.resolve('apps/cli/src/index.ts');
 const tsxLoader = pathToFileURL(
@@ -207,6 +222,52 @@ describe('update and cli flows', () => {
       expect(result.dryRun).toBe(true);
       expect(result.removedEntries).toBeGreaterThan(0);
       expect(service.db.listCacheRepos()).toHaveLength(1);
+    } finally {
+      service.close();
+    }
+  }, 15000);
+
+  test('cache clean preserves reusable push target repositories', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const projectDir = await makeTempDir('agentpm-push-project-');
+    const remoteDir = await makeTempDir('agentpm-push-remote-');
+    const remoteRepo = path.join(remoteDir, 'skills.git');
+    const gitGlobalConfig = await writeGitGlobalIgnoreConfig(remoteDir, [
+      '.agents/',
+    ]);
+
+    git(remoteDir, 'init', '--bare', remoteRepo);
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+      '# pushed skill\n',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: {
+        AGENTPM_HOME: homeDir,
+        GIT_AUTHOR_NAME: 'AgentPM Tests',
+        GIT_AUTHOR_EMAIL: 'tests@example.com',
+        GIT_COMMITTER_NAME: 'AgentPM Tests',
+        GIT_COMMITTER_EMAIL: 'tests@example.com',
+        GIT_CONFIG_GLOBAL: gitGlobalConfig,
+      },
+    });
+    try {
+      await service.push({
+        target: remoteRepo,
+        path: 'skill-a',
+        message: 'Initial push',
+      });
+
+      const pushTargetCache = service.db
+        .listCacheRepos()
+        .find((repo) => repo.metadata.role === 'push-target');
+      expect(pushTargetCache).toBeTruthy();
+
+      const result = await service.cleanCache();
+      expect(result.removedPaths).not.toContain(pushTargetCache!.basePath);
+      expect(await fs.stat(pushTargetCache!.basePath)).toBeTruthy();
     } finally {
       service.close();
     }

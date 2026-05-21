@@ -1,10 +1,33 @@
-# AgentPM
+<h1 align="center">AgentPM</h1>
 
-AgentPM is a project-aware, Git-native CLI for resolving and installing AI skills from public registries, private Git repositories, enterprise registries, and local folders.
+<p align="center">
+  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="MIT License" /></a>
+  <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.5.1-2563eb.svg" alt="Version 0.5.1" /></a>
+</p>
 
-The publishable MVP centers on a committed `agentpm.yaml`: projects declare the direct skills they need, where those skills come from, which runtime target should receive them, and how they are pinned. Generated skill folders, caches, symlinks, and credentials stay local.
+<p align="center">
+  <strong>Git-native skill installs and team sync for AI coding workflows.</strong><br />
+  Discover, install, update, and push skills from repos, folders, and registries without inventing a new package format or flattening native layouts.
+</p>
 
-## MVP Features
+<p align="center">
+  <img src="./docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
+</p>
+
+## Install
+
+```bash
+git clone https://github.com/travelhawk/agentpm.git
+cd agentpm
+pnpm install
+pnpm run install:global
+agentpm --help
+```
+
+AgentPM works in two modes: local installs stay local by default, while a committed `agentpm.yaml` turns a repo into a shared contract for reproducible skill sync. Generated skill folders, caches, symlinks, and credentials stay local.
+
+## Features
 
 - `agentpm.yaml` project contracts with string and detailed object `skills` entries
 - Deterministic `agentpm sync` from configured sources in file order
@@ -28,19 +51,10 @@ pnpm build
 pnpm --filter agentpm exec agentpm --help
 ```
 
-## Install globally
-
-After the package is published, install the CLI from the npm registry:
+If you want a global command from this repository checkout, run:
 
 ```bash
-pnpm add --global agentpm
-agentpm --help
-```
-
-The npm equivalent is:
-
-```bash
-npm install --global agentpm
+pnpm run install:global
 agentpm --help
 ```
 
@@ -48,7 +62,7 @@ If pnpm reports that no global bin directory is configured, run `pnpm setup`, re
 
 ## Project Config
 
-Commit `agentpm.yaml` to the repository:
+Create and commit `agentpm.yaml` when you want a repository-level skill contract:
 
 ```yaml
 sources:
@@ -82,6 +96,8 @@ skills:
 String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
 
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
+
+If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
 ## Installation
 
@@ -144,7 +160,8 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 - If you omit the name or path in a TTY session, AgentPM shows an interactive selector. Use Space to toggle, `a` to select all, `n` to select none, and Enter to confirm.
 - If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
 - Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
-- The target repository can be empty. AgentPM clones it, copies the selected entries into place, commits, and pushes `HEAD`.
+- The target repository can be empty. AgentPM reuses a cached checkout for repeat pushes, copies the selected entries into place, commits, and pushes `HEAD`.
+- Raw Git clone, commit, and push output stays hidden behind concise AgentPM status messages.
 
 ## Docs
 

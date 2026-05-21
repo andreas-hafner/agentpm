@@ -42,7 +42,7 @@ AGENTPM_HOME=/tmp/agentpm-home node apps/cli/dist/index.js source list
 
 ## Project config
 
-Use committed `agentpm.yaml` for reproducible project setup:
+Use committed `agentpm.yaml` only when you want reproducible project setup:
 
 ```yaml
 sources:
@@ -66,6 +66,8 @@ skills:
 ```
 
 String skills are shorthand. Object skills bind a stable project skill name to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. Use `target` for the runtime layout in `agentpm.yaml`; accepted MVP targets are `codex`, `claude`, and `generic`. `target` selects a matching native layout and does not convert one format into another.
+
+By default, `agentpm install --project` and `agentpm install --workspace` stay local and do not create `agentpm.yaml`. Run `agentpm init` when you want to turn the current repo into a shared contract. After `agentpm.yaml` exists, project and workspace installs update it automatically.
 
 Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM restores the configured direct skills and records generated project targets in local Git exclude metadata so skill code, cache paths, and generated links do not need to be committed.
 

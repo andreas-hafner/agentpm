@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { constants as fsConstants, promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
 import {
@@ -14,6 +15,7 @@ import {
   PROJECT_CONFIG_FILENAME,
   ensureAgentPmHome,
   loadGlobalConfig,
+  upsertProjectConfigInstalls,
   loadProjectConfig,
   resolveScopeRoot,
   saveProjectConfig,
@@ -68,6 +70,7 @@ import {
   type ManifestSourceSpec,
   type PromptApi,
   type ProjectConfigFile,
+  type ManifestInstallSpec,
   type PushOptions,
   type PushResult,
   type RefreshSourceResult,
@@ -96,6 +99,7 @@ export interface InstallOptions {
   from?: string | undefined;
   addSource?: boolean | undefined;
   yes?: boolean | undefined;
+  updateProjectConfig?: boolean | undefined;
 }
 
 export interface RemoveInstallOptions {
@@ -112,6 +116,7 @@ export interface AgentPmServiceOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   prompts?: PromptApi;
+  onStatus?: ((message: string) => void) | undefined;
 }
 
 interface ServicePaths {
@@ -204,6 +209,7 @@ export class AgentPmService {
   readonly cwd: string;
   readonly env: NodeJS.ProcessEnv;
   readonly prompts: PromptApi;
+  readonly onStatus: ((message: string) => void) | undefined;
   readonly paths: ServicePaths;
   readonly db: AgentPmDatabase;
 
@@ -211,6 +217,7 @@ export class AgentPmService {
     this.cwd = path.resolve(options.cwd ?? process.cwd());
     this.env = { ...process.env, ...options.env };
     this.prompts = options.prompts ?? {};
+    this.onStatus = options.onStatus;
 
     const agentPmHome =
       this.env.AGENTPM_HOME ?? path.join(os.homedir(), '.agentpm');
@@ -235,6 +242,23 @@ export class AgentPmService {
 
   private cacheBasePath(cacheKey: string): string {
     return path.join(this.paths.cacheDir, 'repos', cacheKey.slice(0, 16));
+  }
+
+  private reportStatus(message: string): void {
+    this.onStatus?.(message);
+  }
+
+  private async toGitTransportLocator(locator: string): Promise<string> {
+    if (locator.includes('://') || locator.includes('@')) {
+      return locator;
+    }
+
+    const localPath = path.resolve(locator);
+    if (await pathExists(localPath)) {
+      return pathToFileURL(localPath).href;
+    }
+
+    return locator;
   }
 
   async addSource(locator: string): Promise<AddSourceResult> {
@@ -622,6 +646,10 @@ export class AgentPmService {
       }
     }
 
+    if (installs.length > 0 && options.updateProjectConfig !== false) {
+      await this.updateExistingProjectConfig(installs);
+    }
+
     return installs;
   }
 
@@ -767,6 +795,9 @@ export class AgentPmService {
 
     for (const cacheRepo of this.db.listCacheRepos()) {
       if (installedCacheKeys.has(cacheRepo.cacheKey)) {
+        continue;
+      }
+      if (cacheRepo.metadata.role === 'push-target') {
         continue;
       }
       if (!options.dryRun) {
@@ -971,6 +1002,7 @@ export class AgentPmService {
         revision: installSpec.revision ?? null,
         target: installSpec.target ?? installSpec.adapter,
         yes: true,
+        updateProjectConfig: false,
       });
       installs.push(...created);
     }
@@ -1132,6 +1164,53 @@ export class AgentPmService {
     throw new AgentPmError(
       `No push target specified and no default target configured in agentpm.yaml or global config.\n\nAvailable targets:\n${available}\n\nUse --to <target>, or set one with: agentpm target default <id>${useProjectTargets ? '' : ' --global'}`,
     );
+  }
+
+  private installRecordToManifestSpec(install: InstallRecord): ManifestInstallSpec {
+    return {
+      name: install.name,
+      source: install.sourceId,
+      items:
+        install.selectedItems.length > 0 ? install.selectedItems : [install.name],
+      scope: install.scope === 'global' ? 'project' : install.scope,
+      ref: install.contentRef ?? undefined,
+      revision: install.installedRevision ?? undefined,
+      target: install.adapter,
+      workspaceRoot:
+        install.scope === 'workspace' ? install.scopeRoot : undefined,
+    };
+  }
+
+  private async updateExistingProjectConfig(
+    installs: InstallRecord[],
+  ): Promise<void> {
+    const loadedConfig = await loadProjectConfig(this.cwd);
+    if (!loadedConfig || loadedConfig.format !== 'agentpm.yaml') {
+      return;
+    }
+
+    const localInstalls = installs.filter((install) => install.scope !== 'global');
+    if (localInstalls.length === 0) {
+      return;
+    }
+
+    const sources = localInstalls
+      .map((install) => this.db.getSource(install.sourceId))
+      .filter((source): source is SourceRecord => Boolean(source))
+      .map((source) => ({
+        id: source.id,
+        locator: source.locator,
+        kind: source.kind,
+      } satisfies ManifestSourceSpec));
+
+    const uniqueSources = [
+      ...new Map(sources.map((source) => [source.id ?? source.locator, source])).values(),
+    ];
+
+    await upsertProjectConfigInstalls(this.cwd, {
+      sources: uniqueSources,
+      installs: localInstalls.map((install) => this.installRecordToManifestSpec(install)),
+    });
   }
 
   private async discoverPushCandidates(
@@ -1317,14 +1396,13 @@ export class AgentPmService {
         entries: pushedEntries,
       };
     }
-    let tempRoot: string | null = null;
     try {
-      tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'agentpm-push-'));
-      const releasePath = path.join(tempRoot, 'checkout');
-      await runGitCommand(['clone', locator, releasePath], {
-        env: this.env,
-      });
+      const { repoPath: releasePath } =
+        await this.preparePushTargetRepository(locator);
 
+      this.reportStatus(
+        `Copying ${entries.length === 1 ? entries[0]!.name : `${entries.length} selected entries`} into the target repository...`,
+      );
       for (const entry of entries) {
         const destinationRoot = path.join(
           releasePath,
@@ -1355,7 +1433,8 @@ export class AgentPmService {
       const commitMessage =
         message ??
         `Update ${entries.length === 1 ? entries[0]!.name : `${entries.length} skills`} from AgentPM`;
-      await runGitCommand(['commit', '-m', commitMessage], {
+      this.reportStatus('Creating Git commit...');
+      await runGitCommand(['commit', '--quiet', '-m', commitMessage], {
         cwd: releasePath,
         env: this.env,
       }).catch(() => {
@@ -1375,9 +1454,26 @@ export class AgentPmService {
         );
       }
 
-      await runGitCommand(['push', 'origin', 'HEAD'], {
+      this.reportStatus('Pushing changes to the remote target...');
+      await runGitCommand(['push', '--quiet', '--set-upstream', 'origin', 'HEAD'], {
         cwd: releasePath,
         env: this.env,
+      });
+
+      const cacheKey = makeId('push-target', locator);
+      this.db.saveCacheRepo({
+        cacheKey,
+        sourceId: null,
+        locator,
+        kind: 'git',
+        basePath: path.dirname(releasePath),
+        currentRevision: revision,
+        isGit: true,
+        layoutSignature: null,
+        metadata: {
+          role: 'push-target',
+        },
+        updatedAt: nowIso(),
       });
 
       return {
@@ -1391,11 +1487,47 @@ export class AgentPmService {
       throw new AgentPmError(
         `Git push fallback failed: ${error instanceof Error ? error.message : String(error)}`,
       );
-    } finally {
-      if (tempRoot) {
-        await fs.rm(tempRoot, { recursive: true, force: true }).catch(() => {});
-      }
     }
+  }
+
+  private async preparePushTargetRepository(
+    locator: string,
+  ): Promise<{ repoPath: string; cacheKey: string }> {
+    const cacheKey = makeId('push-target', locator);
+    const cacheBasePath = this.cacheBasePath(cacheKey);
+    const repoPath = path.join(cacheBasePath, 'worktree');
+    const gitDir = path.join(repoPath, '.git');
+    const transportLocator = await this.toGitTransportLocator(locator);
+
+    if (!(await pathExists(gitDir))) {
+      await fs.rm(cacheBasePath, { recursive: true, force: true }).catch(() => {});
+      await ensureDir(cacheBasePath);
+      this.reportStatus('Cloning the target repository into the local cache...');
+      await runGitCommand(['clone', '--quiet', transportLocator, repoPath], {
+        env: this.env,
+      });
+      return { repoPath, cacheKey };
+    }
+
+    this.reportStatus('Refreshing the cached target repository...');
+    await runGitCommand(['reset', '--hard', '--quiet', 'HEAD'], {
+      cwd: repoPath,
+      env: this.env,
+    }).catch(() => {});
+    await runGitCommand(['clean', '-fd'], {
+      cwd: repoPath,
+      env: this.env,
+    }).catch(() => {});
+    await runGitCommand(['fetch', '--quiet', 'origin', '--prune'], {
+      cwd: repoPath,
+      env: this.env,
+    }).catch(() => {});
+    await runGitCommand(['pull', '--ff-only', '--quiet'], {
+      cwd: repoPath,
+      env: this.env,
+    }).catch(() => {});
+
+    return { repoPath, cacheKey };
   }
 
   async resolveRuntimeContext(

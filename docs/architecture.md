@@ -8,7 +8,7 @@ AgentPM is a Git-native CLI for discovering and managing AI skills and agent ass
 2. `packages/core` resolves the action, source, scope, and confirmation policy.
 3. Specialized packages handle config, database, git or local source access, adapter detection, file linking, and output formatting.
 4. The database tracks sources, indexed catalog entries, cache state, and installs.
-5. Project config is declared in committed `agentpm.yaml`; optional `.agentpmrc` files are local-only overrides or compatibility fallbacks.
+5. Project config is declared in committed `agentpm.yaml` only for repos that opt into shared contract mode; optional `.agentpmrc` files are local-only overrides or compatibility fallbacks.
 6. Native target directories are populated with symlinks or directory junctions for install/sync flows, while `agentpm resolve` builds a runtime context graph without writing project runtime folders.
 
 ## Package responsibilities
@@ -32,7 +32,7 @@ AgentPM is a Git-native CLI for discovering and managing AI skills and agent ass
 
 ## Project-aware runtime resolution
 
-`agentpm.yaml` declares source order, default scope, and required project skills:
+When present, `agentpm.yaml` declares source order, default scope, and required project skills:
 
 ```yaml
 sources:
@@ -56,6 +56,8 @@ skills:
 ```
 
 String skills are shorthand for resolving a skill from configured sources in order. Object skills are the detailed direct contract: `name`, `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`. `target` is the public runtime-layout field in project config. It selects a matching native adapter (`codex`, `claude`, or `generic`) and does not transform layouts.
+
+Without `agentpm.yaml`, `agentpm install --project` and `agentpm install --workspace` behave like local package-manager installs and do not create a contract file. `agentpm init` is the explicit creation step. Once `agentpm.yaml` exists, project and workspace installs update it automatically.
 
 `agentpm sync` uses source order deterministically and writes generated target paths to `.git/info/exclude` when the scope root is a Git repository. This keeps committed project state focused on `agentpm.yaml`.
 
