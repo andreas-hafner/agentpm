@@ -421,9 +421,20 @@ async function checkFirstStart(service: AgentPmService): Promise<void> {
 
 async function withService<T>(
   callback: (service: AgentPmService) => Promise<T>,
-  options: { checkFirstStart?: boolean } = {},
+  options: {
+    checkFirstStart?: boolean;
+    statusMessages?: boolean;
+  } = {},
 ): Promise<T> {
-  const service = new AgentPmService({ prompts: createPromptApi() });
+  const service = new AgentPmService({
+    prompts: createPromptApi(),
+    onStatus:
+      options.statusMessages === false
+        ? undefined
+        : (message) => {
+            console.log(`${symbols.info} ${message}`);
+          },
+  });
   try {
     if (options.checkFirstStart !== false) {
       await checkFirstStart(service);
@@ -754,9 +765,6 @@ program
         );
       }
 
-      if (installs.length > 0 && !flags.global) {
-        await withService((service) => service.initManifest());
-      }
     },
   );
 
@@ -882,6 +890,9 @@ program
           all: flags.all,
           dryRun: flags.dryRun,
         }),
+        {
+          statusMessages: true,
+        },
       );
       if (result.success) {
         console.log(

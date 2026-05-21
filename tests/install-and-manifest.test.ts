@@ -23,7 +23,61 @@ async function writeGitGlobalIgnoreConfig(
 }
 
 describe('install and manifest flows', () => {
-  test('installs a local generic skill into project scope and writes a manifest', async () => {
+  test('installs a local generic skill into project scope without creating a manifest by default', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(sourceDir);
+      const installs = await service.install(['skill-b'], { scope: 'project' });
+      expect(installs).toHaveLength(1);
+
+      const targetPath = path.join(projectDir, '.agents', 'skills', 'skill-b');
+      expect(await fs.lstat(targetPath)).toBeTruthy();
+      await expect(
+        fs.readFile(path.join(projectDir, 'agentpm.yaml'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      service.close();
+    }
+  });
+
+  test('workspace installs do not create a manifest by default', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    const workspaceRoot = path.join(projectDir, 'workspace-root');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(sourceDir);
+      const installs = await service.install(['skill-b'], {
+        scope: 'workspace',
+        workspaceRoot,
+      });
+      expect(installs).toHaveLength(1);
+      expect(
+        await fs.lstat(path.join(workspaceRoot, '.agents', 'skills', 'skill-b')),
+      ).toBeTruthy();
+      await expect(
+        fs.readFile(path.join(projectDir, 'agentpm.yaml'), 'utf8'),
+      ).rejects.toThrow();
+    } finally {
+      service.close();
+    }
+  });
+
+  test('installs a local generic skill into project scope and writes a manifest after explicit init', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const sourceDir = await makeTempDir('agentpm-source-');
     const projectDir = await makeTempDir('agentpm-project-');
@@ -51,6 +105,92 @@ describe('install and manifest flows', () => {
       expect(
         doctorIssues.filter((issue) => issue.severity === 'error'),
       ).toHaveLength(0);
+    } finally {
+      service.close();
+    }
+  });
+
+  test('project installs update an existing agentpm.yaml automatically', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(path.join(projectDir, 'agentpm.yaml'), 'version: 1\nskills: []\n', 'utf8');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(sourceDir);
+      const installs = await service.install(['skill-b'], { scope: 'project' });
+      expect(installs).toHaveLength(1);
+
+      const { loadProjectConfig } = await import('@agentpm/config');
+      const config = await loadProjectConfig(projectDir);
+      expect(config?.manifest.sources).toHaveLength(1);
+      expect(config?.manifest.installs.map((install) => install.name)).toEqual([
+        'skill-b',
+      ]);
+      expect(
+        await fs.readFile(path.join(projectDir, 'agentpm.yaml'), 'utf8'),
+      ).toContain('skills:');
+    } finally {
+      service.close();
+    }
+  });
+
+  test('workspace installs update an existing agentpm.yaml automatically', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    const workspaceRoot = path.join(projectDir, 'workspace-target');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(path.join(projectDir, 'agentpm.yaml'), 'version: 1\nskills: []\n', 'utf8');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(sourceDir);
+      const installs = await service.install(['skill-b'], {
+        scope: 'workspace',
+        workspaceRoot,
+      });
+      expect(installs).toHaveLength(1);
+
+      const { loadProjectConfig } = await import('@agentpm/config');
+      const config = await loadProjectConfig(projectDir);
+      expect(config?.manifest.installs[0]?.name).toBe('skill-b');
+      expect(config?.manifest.installs[0]?.scope).toBe('workspace');
+      expect(config?.manifest.installs[0]?.workspaceRoot).toBe(workspaceRoot);
+    } finally {
+      service.close();
+    }
+  });
+
+  test('a standalone .agentpmrc does not trigger agentpm.yaml creation on install', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(path.join(projectDir, '.agentpmrc'), 'version: 1\nskills: []\n', 'utf8');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addSource(sourceDir);
+      const installs = await service.install(['skill-b'], { scope: 'project' });
+      expect(installs).toHaveLength(1);
+      await expect(
+        fs.readFile(path.join(projectDir, 'agentpm.yaml'), 'utf8'),
+      ).rejects.toThrow();
+      expect(await fs.readFile(path.join(projectDir, '.agentpmrc'), 'utf8')).toContain(
+        'skills: []',
+      );
     } finally {
       service.close();
     }
@@ -766,6 +906,72 @@ describe('install and manifest flows', () => {
           .stat(path.join(verifyDir, '.agents', 'skills', 'skill-a'))
           .catch(() => null),
       ).toBeNull();
+    } finally {
+      service.close();
+    }
+  }, 15000);
+
+  test('push reuses the cached target repository across repeated pushes', async () => {
+    const projectDir = await makeTempDir('agentpm-push-project-');
+    const remoteDir = await makeTempDir('agentpm-push-remote-');
+    const remoteRepo = path.join(remoteDir, 'skills.git');
+    const verifyDir = path.join(remoteDir, 'verify');
+    const gitGlobalConfig = await writeGitGlobalIgnoreConfig(remoteDir, [
+      '.agents/',
+    ]);
+
+    git(remoteDir, 'init', '--bare', remoteRepo);
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+      '# version one\n',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: {
+        GIT_AUTHOR_NAME: 'AgentPM Tests',
+        GIT_AUTHOR_EMAIL: 'tests@example.com',
+        GIT_COMMITTER_NAME: 'AgentPM Tests',
+        GIT_COMMITTER_EMAIL: 'tests@example.com',
+        GIT_CONFIG_GLOBAL: gitGlobalConfig,
+      },
+    });
+
+    try {
+      await service.push({
+        target: remoteRepo,
+        path: 'skill-a',
+        message: 'Initial push',
+      });
+
+      const pushTargetCache = service.db
+        .listCacheRepos()
+        .find((repo) => repo.metadata.role === 'push-target');
+      expect(pushTargetCache).toBeTruthy();
+      const cachedRepoPath = path.join(pushTargetCache!.basePath, 'worktree');
+      const firstStat = await fs.stat(cachedRepoPath);
+
+      await writeFile(
+        path.join(projectDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+        '# version two\n',
+      );
+
+      await service.push({
+        target: remoteRepo,
+        path: 'skill-a',
+        message: 'Second push',
+      });
+
+      const secondStat = await fs.stat(cachedRepoPath);
+      expect(secondStat.ino).toBe(firstStat.ino);
+
+      git(remoteDir, 'clone', remoteRepo, verifyDir);
+      expect(
+        await fs.readFile(
+          path.join(verifyDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+          'utf8',
+        ),
+      ).toContain('# version two');
     } finally {
       service.close();
     }

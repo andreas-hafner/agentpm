@@ -8,6 +8,15 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.5.1] - 2026-05-21
+
+### Changed
+
+- `agentpm install --project` and `agentpm install --workspace` no longer create `agentpm.yaml` automatically when a repo has not opted into contract mode yet.
+- `agentpm init` is now the explicit way to create `agentpm.yaml` from current local installs, while later project and workspace installs update the existing manifest automatically.
+- Docs now distinguish local package-manager installs from manifest-backed repo sync workflows.
+- Git-backed source installs and `agentpm push` now suppress raw Git progress output, show AgentPM-owned status messages instead, and reuse cached target checkouts across repeated pushes.
+
 ## [0.5.0] - 2026-05-19
 
 ### Added

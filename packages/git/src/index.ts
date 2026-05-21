@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { ensureDir, pathExists } from '@agentpm/fs';
 import { AgentPmError, isGitRevision, type ContentKind } from '@agentpm/shared';
@@ -54,6 +55,23 @@ export async function isLocalGitRepository(locator: string): Promise<boolean> {
 
 function resolveGitEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...process.env, ...env };
+}
+
+async function toGitTransportLocator(locator: string): Promise<string> {
+  if (locator.includes('://') || locator.includes('@') || locator.endsWith('.git')) {
+    const localPath = path.resolve(locator);
+    if (await pathExists(localPath)) {
+      return pathToFileURL(localPath).href;
+    }
+    return locator;
+  }
+
+  const localPath = path.resolve(locator);
+  if (await pathExists(localPath)) {
+    return pathToFileURL(localPath).href;
+  }
+
+  return locator;
 }
 
 export async function runGitCommand(
@@ -121,6 +139,7 @@ export async function resolveGitRevision(
 
 export async function materializeGitRelease(options: GitReleaseOptions): Promise<GitRelease> {
   await ensureDir(options.basePath);
+  const transportLocator = await toGitTransportLocator(options.locator);
   const targetRevision =
     options.revision ??
     (await resolveGitRevision(
@@ -139,7 +158,7 @@ export async function materializeGitRelease(options: GitReleaseOptions): Promise
     cloneArgs.push('--branch', options.ref);
   }
 
-  await runGitCommand(['clone', ...cloneArgs, options.locator, releasePath], {
+  await runGitCommand(['clone', '--quiet', ...cloneArgs, transportLocator, releasePath], {
     env: options.env,
   });
 
@@ -150,13 +169,13 @@ export async function materializeGitRelease(options: GitReleaseOptions): Promise
   }
 
   if (options.revision && isGitRevision(options.revision) && options.ref !== options.revision) {
-    await runGitCommand(['fetch', 'origin', options.revision, '--depth', '1'], {
+    await runGitCommand(['fetch', '--quiet', 'origin', options.revision, '--depth', '1'], {
       cwd: releasePath,
       env: options.env,
     });
     await repo.checkout(['FETCH_HEAD']);
   } else if (options.ref && isGitRevision(options.ref)) {
-    await runGitCommand(['fetch', 'origin', options.ref, '--depth', '1'], {
+    await runGitCommand(['fetch', '--quiet', 'origin', options.ref, '--depth', '1'], {
       cwd: releasePath,
       env: options.env,
     });
