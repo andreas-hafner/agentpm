@@ -7,7 +7,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts'],
     globals: true,
-    pool: 'forks'
+    pool: 'forks',
+    testTimeout: process.env.CI ? 30_000 : 15_000,
+    hookTimeout: process.env.CI ? 30_000 : 15_000,
   }
 });
 

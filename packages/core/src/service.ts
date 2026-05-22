@@ -81,6 +81,12 @@ import {
   type SourceRecord,
   type UpdatePreview,
 } from '@agentpm/shared';
+import {
+  formatProviderSkillSelector,
+  resolveProviderInstallRequest,
+  searchProviderSkills,
+  type ProviderSkillSearchResult,
+} from './provider-bridge.js';
 
 export interface AddSourceResult {
   source: SourceRecord;
@@ -167,6 +173,22 @@ export interface SourceEntriesResult {
   sourceLocator: string;
   persisted: boolean;
   entries: SourceSkillEntry[];
+}
+
+export interface ProviderSkillInstallOptions extends InstallOptions {
+  provider?: string | undefined;
+}
+
+export interface ProviderInstalledSkillRecord {
+  provider: string;
+  name: string;
+  source: string | null;
+  installLocator: string | null;
+  skillSelector: string | null;
+  scope: InstallScope;
+  targetPath: string;
+  installedRevision: string | null;
+  installId: string;
 }
 
 const execFileAsync = promisify(execFile);
@@ -496,6 +518,98 @@ export class AgentPmService {
     return [...catalogResults, ...this.db.searchInstalled(query)];
   }
 
+  async searchProviderSkills(query: string): Promise<ProviderSkillSearchResult[]> {
+    await this.initialize();
+    return searchProviderSkills(query, this.env);
+  }
+
+  listProviderSkillInstalls(provider = 'skills.sh'): ProviderInstalledSkillRecord[] {
+    return this.db
+      .listInstalls()
+      .filter((install) => install.metadata.provider === provider)
+      .map((install) => ({
+        provider,
+        name: install.name,
+        source:
+          typeof install.metadata.providerSource === 'string'
+            ? install.metadata.providerSource
+            : null,
+        installLocator:
+          typeof install.metadata.providerInstallLocator === 'string'
+            ? install.metadata.providerInstallLocator
+            : null,
+        skillSelector:
+          typeof install.metadata.providerSkillSelector === 'string'
+            ? install.metadata.providerSkillSelector
+            : null,
+        scope: install.scope,
+        targetPath: install.targetPath,
+        installedRevision: install.installedRevision,
+        installId: install.id,
+      }));
+  }
+
+  async installProviderSkill(
+    sourceOrSelector: string,
+    options: ProviderSkillInstallOptions = {},
+  ): Promise<InstallRecord[]> {
+    const request = resolveProviderInstallRequest(
+      sourceOrSelector,
+      options.skills ?? [],
+      options.provider,
+    );
+    const installs = await this.install([], {
+      ...options,
+      from: request.installLocator,
+      addSource: true,
+      skills: request.skills,
+    });
+    const taggedInstalls = installs.map((install) =>
+      this.db.saveInstall({
+        ...install,
+        metadata: {
+          ...install.metadata,
+          provider: request.provider,
+          providerSource: request.source,
+          providerInstallLocator: request.installLocator,
+          providerSkillSelector:
+            request.selector ??
+            formatProviderSkillSelector(request.source, install.name),
+        },
+        updatedAt: nowIso(),
+      }),
+    );
+    if (taggedInstalls.length > 0 && options.updateProjectConfig !== false) {
+      await this.updateExistingProjectConfig(taggedInstalls);
+    }
+    return taggedInstalls;
+  }
+
+  async removeProviderSkill(
+    identifier: string,
+    options: RemoveInstallOptions = {},
+  ): Promise<InstallRecord> {
+    await this.initialize();
+    const install = await this.resolveProviderInstall(identifier);
+    return this.removeInstallRecord(install, options);
+  }
+
+  async updateProviderSkills(
+    identifiers: string[] = [],
+    options: UpdateOptions = {},
+  ): Promise<UpdatePreview[]> {
+    await this.initialize();
+    const installs = this.resolveProviderInstalls(identifiers);
+    const installIds = new Set(installs.map((install) => install.id));
+    const previews = (await this.previewUpdates({ apply: false })).filter(
+      (preview) => installIds.has(preview.install.id),
+    );
+    if (!options.apply) {
+      return previews;
+    }
+    return this.applyUpdatePreviews(previews, options);
+  }
+
   listInstalls(): InstallRecord[] {
     return this.db.listInstalls();
   }
@@ -725,6 +839,13 @@ export class AgentPmService {
       return previews;
     }
 
+    return this.applyUpdatePreviews(previews, options);
+  }
+
+  private async applyUpdatePreviews(
+    previews: UpdatePreview[],
+    options: UpdateOptions,
+  ): Promise<UpdatePreview[]> {
     for (const preview of previews) {
       if (!preview.changed || !preview.nextLinkTarget) {
         continue;
@@ -865,21 +986,7 @@ export class AgentPmService {
       );
     }
 
-    await removeManagedLink(install.targetPath);
-    this.db.removeInstall(install.id);
-
-    if (
-      options.purge &&
-      install.cacheKey &&
-      this.db.countInstallsForCacheKey(install.cacheKey) === 0
-    ) {
-      await fs.rm(this.cacheBasePath(install.cacheKey), {
-        recursive: true,
-        force: true,
-      });
-    }
-
-    return install;
+    return this.removeInstallRecord(install, options);
   }
 
   async initManifest(): Promise<{
@@ -1178,6 +1285,14 @@ export class AgentPmService {
       target: install.adapter,
       workspaceRoot:
         install.scope === 'workspace' ? install.scopeRoot : undefined,
+      provider:
+        typeof install.metadata.provider === 'string'
+          ? install.metadata.provider
+          : undefined,
+      selector:
+        typeof install.metadata.providerSkillSelector === 'string'
+          ? install.metadata.providerSkillSelector
+          : undefined,
     };
   }
 
@@ -2097,12 +2212,6 @@ export class AgentPmService {
 
   private normalizeLocator(locator: string, kind: SourceKind): string {
     const trimmed = locator.trim();
-    if (trimmed === 'skills.sh' || trimmed === 'www.skills.sh') {
-      return 'https://skills.sh';
-    }
-    if (trimmed === 'skillshub.wtf') {
-      return 'https://skillshub.wtf';
-    }
     if (trimmed.startsWith('registry+https://')) {
       return trimmed.slice('registry+'.length);
     }
@@ -3070,6 +3179,84 @@ export class AgentPmService {
     return this.db
       .listInstalls()
       .filter((install) => requested.has(install.name));
+  }
+
+  private resolveProviderInstalls(identifiers: string[]): InstallRecord[] {
+    const providerInstalls = this.db
+      .listInstalls()
+      .filter((install) => install.metadata.provider === 'skills.sh');
+    if (identifiers.length === 0) {
+      return providerInstalls;
+    }
+
+    const matches: InstallRecord[] = [];
+    const matchedIds = new Set<string>();
+    for (const identifier of identifiers) {
+      const requested = identifier.trim();
+      const directMatches = providerInstalls.filter((install) => {
+        const providerSelector =
+          typeof install.metadata.providerSkillSelector === 'string'
+            ? install.metadata.providerSkillSelector
+            : null;
+        return install.name === requested || providerSelector === requested;
+      });
+      if (directMatches.length === 0) {
+        throw new AgentPmError(
+          `No skills.sh install matching "${requested}" was found.`,
+        );
+      }
+      for (const install of directMatches) {
+        if (!matchedIds.has(install.id)) {
+          matchedIds.add(install.id);
+          matches.push(install);
+        }
+      }
+    }
+    return matches;
+  }
+
+  private async resolveProviderInstall(identifier: string): Promise<InstallRecord> {
+    const matches = this.resolveProviderInstalls([identifier]);
+    if (matches.length === 1) {
+      return matches[0]!;
+    }
+    if (!this.prompts.selectOne) {
+      throw new AgentPmError(
+        `Multiple skills.sh installs match "${identifier}". Re-run interactively to choose one.`,
+      );
+    }
+    return this.prompts.selectOne(
+      `Choose which "${identifier}" skills.sh install to remove:`,
+      matches.map((install) => ({
+        label:
+          typeof install.metadata.providerSkillSelector === 'string'
+            ? install.metadata.providerSkillSelector
+            : install.name,
+        description: install.targetPath,
+        value: install,
+      })),
+    );
+  }
+
+  private async removeInstallRecord(
+    install: InstallRecord,
+    options: RemoveInstallOptions,
+  ): Promise<InstallRecord> {
+    await removeManagedLink(install.targetPath);
+    this.db.removeInstall(install.id);
+
+    if (
+      options.purge &&
+      install.cacheKey &&
+      this.db.countInstallsForCacheKey(install.cacheKey) === 0
+    ) {
+      await fs.rm(this.cacheBasePath(install.cacheKey), {
+        recursive: true,
+        force: true,
+      });
+    }
+
+    return install;
   }
 
   private async previewLocalInstallUpdate(

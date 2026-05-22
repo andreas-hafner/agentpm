@@ -3,12 +3,12 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.5.1-2563eb.svg" alt="Version 0.5.1" /></a>
+  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.6.0-2563eb.svg" alt="Version 0.6.0" /></a>
 </p>
 
 <p align="center">
-  <strong>Git-native skill installs and team sync for AI coding workflows.</strong><br />
-  Discover, install, update, and push skills from repos, folders, and registries without inventing a new package format or flattening native layouts.
+  <strong>Git-native private-first skill installs and team sync for AI coding workflows.</strong><br />
+  Discover, install, update, and push skills from repos, folders, and owned indexes, with an optional public skills.sh bridge when you need to pull from the wider ecosystem.
 </p>
 
 <p align="center">
@@ -32,6 +32,7 @@ AgentPM works in two modes: local installs stay local by default, while a commit
 - `agentpm.yaml` project contracts with string and detailed object `skills` entries
 - Deterministic `agentpm sync` from configured sources in file order
 - Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
+- `agentpm skills search`, `install`, `list`, `update`, and `remove` for no-key public discovery/import through the official `npx skills` CLI
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
 - Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
@@ -95,7 +96,22 @@ skills:
 
 String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
 
+When `agentpm.yaml` already exists, bridge installs from `agentpm skills install` are saved the same way: AgentPM persists the resolved source it can sync later, and can also keep optional provenance metadata from the public bridge.
+
+```yaml
+skills:
+  - name: typescript-advanced-types
+    source: public-types
+    items:
+      - typescript-advanced-types
+    scope: project
+    provider: skills.sh
+    selector: wshobson/agents@typescript-advanced-types
+```
+
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
+
+`skills.sh` is available as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
@@ -136,6 +152,11 @@ The smoke test builds the workspace, runs the packaged `agentpm` bin with an iso
 ```bash
 agentpm source add ./examples/repos/codex-sample
 agentpm source skills github:company/private-skills
+agentpm skills search typescript
+agentpm skills install wshobson/agents@typescript-advanced-types --project
+agentpm skills list
+agentpm skills update --yes
+agentpm skills remove typescript-advanced-types
 agentpm inspect ./examples/repos/codex-sample --skill audio-mastering --target codex
 agentpm search audio --refresh
 agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source

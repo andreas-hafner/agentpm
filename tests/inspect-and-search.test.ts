@@ -3,6 +3,7 @@ import path from 'node:path';
 import { describe, expect, test } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
+import { classifyLocator } from '@agentpm/shared';
 
 import {
   copyDir,
@@ -13,6 +14,7 @@ import {
 } from './helpers';
 
 const fixturesRoot = path.resolve('tests/fixtures/repos');
+const CI_TEST_TIMEOUT = process.env.CI ? 30_000 : 15_000;
 
 describe('inspect and search', () => {
   test('detects codex layout from a local repo', async () => {
@@ -67,6 +69,13 @@ describe('inspect and search', () => {
     }
   });
 
+  test('does not treat skills.sh as a dedicated registry locator', () => {
+    expect(classifyLocator('skills.sh')).toBe('local');
+    expect(classifyLocator('https://skills.sh')).toBe('git');
+    expect(classifyLocator('skillshub.wtf')).toBe('local');
+    expect(classifyLocator('https://skillshub.wtf')).toBe('git');
+  });
+
   test('refresh rebuilds a git source index after repository changes', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const repoDir = await makeTempDir('agentpm-git-source-');
@@ -98,7 +107,7 @@ describe('inspect and search', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('detects plain skills folder repositories and install-script risk', async () => {
     const homeDir = await makeTempDir('agentpm-home-');

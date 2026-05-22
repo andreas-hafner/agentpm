@@ -1,6 +1,8 @@
 # Registry Guide
 
-AgentPM registries are static YAML or JSON indexes that list installable entries. They can be local files, HTTPS URLs, or enterprise/private indexes exposed behind normal Git or HTTP access controls.
+AgentPM supports static YAML or JSON registry indexes served from local files or HTTPS URLs under the `registry` source kind.
+
+The `skills.sh` CLI bridge is separate from this registry model. Use `agentpm skills search` and `agentpm skills install` when you want no-key public discovery or import without treating the provider as a normal indexed source.
 
 ## Supported format
 

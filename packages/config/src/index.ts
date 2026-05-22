@@ -295,6 +295,8 @@ function normalizeSkillSpec(
       record.workspaceRoot,
       'skills[].workspaceRoot',
     ),
+    provider: optionalString(record.provider, 'skills[].provider'),
+    selector: optionalString(record.selector, 'skills[].selector'),
   };
 }
 
@@ -397,6 +399,14 @@ function normalizeProjectConfig(value: Record<string, unknown>): ManifestFile {
                 record.workspaceRoot,
                 `installs[${index}].workspaceRoot`,
               ),
+              provider: optionalString(
+                record.provider,
+                `installs[${index}].provider`,
+              ),
+              selector: optionalString(
+                record.selector,
+                `installs[${index}].selector`,
+              ),
             };
           })
         : [],
@@ -454,6 +464,8 @@ function manifestInstallToProjectSkillSpec(
     target: install.target ?? install.adapter,
     adapter: install.adapter ?? install.target,
     workspaceRoot: install.workspaceRoot,
+    provider: install.provider,
+    selector: install.selector,
   };
 }
 

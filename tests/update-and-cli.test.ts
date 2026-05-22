@@ -6,7 +6,11 @@ import { promisify } from 'node:util';
 
 import { describe, expect, test } from 'vitest';
 
-import { AgentPmService } from '@agentpm/core';
+import {
+  AgentPmService,
+  parseSkillsProviderSearchOutput,
+  resolveProviderInstallRequest,
+} from '@agentpm/core';
 
 import {
   copyDir,
@@ -33,10 +37,65 @@ async function writeGitGlobalIgnoreConfig(
 
 const execFileAsync = promisify(execFile);
 const cliEntry = path.resolve('apps/cli/src/index.ts');
+const CI_TEST_TIMEOUT = process.env.CI ? 30_000 : 15_000;
 const tsxLoader = pathToFileURL(
   path.resolve('node_modules/tsx/dist/loader.mjs'),
 ).href;
 const rootTsconfig = path.resolve('tsconfig.json');
+
+async function createFakeNpx(binRoot: string): Promise<string> {
+  const binDir = path.join(binRoot, 'fake-npx');
+  await fs.mkdir(binDir, { recursive: true });
+  await fs.writeFile(
+    path.join(binDir, 'npx.js'),
+    [
+      "const args = process.argv.slice(2);",
+      "if (args[0] !== 'skills') { console.error('unexpected command'); process.exit(1); }",
+      "if (args[1] === 'find') {",
+      "  const query = args.slice(2).join(' ');",
+      "  if (query === 'typescript') {",
+      "    console.log('Install with npx skills add <owner/repo@skill>');",
+      "    console.log('');",
+      "    console.log('wshobson/agents@typescript-advanced-types 42.7K installs');",
+      "    console.log('└ https://skills.sh/wshobson/agents/typescript-advanced-types');",
+      "    console.log('');",
+      "    console.log('github/awesome-copilot@javascript-typescript-jest 10.6K installs');",
+      "    console.log('└ https://skills.sh/github/awesome-copilot/javascript-typescript-jest');",
+      "    process.exit(0);",
+      "  }",
+      "  if (query === 'empty') {",
+      "    console.log('No skills found for \"empty\"');",
+      "    process.exit(0);",
+      "  }",
+      "  if (query === 'broken') {",
+      "    console.log('unexpected output');",
+      "    process.exit(0);",
+      "  }",
+      "  console.error('unexpected query');",
+      "  process.exit(1);",
+      "}",
+      "console.error('unexpected subcommand');",
+      "process.exit(1);",
+    ].join('\n'),
+    'utf8',
+  );
+  await fs.writeFile(
+    path.join(binDir, 'npx.cmd'),
+    '@echo off\r\nnode "%~dp0\\npx.js" %*\r\n',
+    'utf8',
+  );
+  return binDir;
+}
+
+function withPrependedPath(
+  binDir: string,
+  env: NodeJS.ProcessEnv = {},
+): NodeJS.ProcessEnv {
+  return {
+    ...env,
+    PATH: `${binDir}${path.delimiter}${env.PATH ?? process.env.PATH ?? ''}`,
+  };
+}
 
 async function runCli(
   args: string[],
@@ -61,6 +120,53 @@ async function runCli(
 }
 
 describe('update and cli flows', () => {
+  test('parses skills.sh bridge output and rejects malformed results', () => {
+    const parsed = parseSkillsProviderSearchOutput(
+      [
+        'Install with npx skills add <owner/repo@skill>',
+        '',
+        'wshobson/agents@typescript-advanced-types 42.7K installs',
+        '└ https://skills.sh/wshobson/agents/typescript-advanced-types',
+      ].join('\n'),
+    );
+    expect(parsed).toEqual([
+      expect.objectContaining({
+        skillSelector: 'wshobson/agents@typescript-advanced-types',
+        source: 'wshobson/agents',
+        installLocator: 'github:wshobson/agents',
+        installs: '42.7K',
+      }),
+    ]);
+    expect(parseSkillsProviderSearchOutput('No skills found for "empty"\n')).toEqual(
+      [],
+    );
+    expect(() => parseSkillsProviderSearchOutput('unexpected output\n')).toThrow(
+      'skills.sh CLI returned unexpected search output',
+    );
+  });
+
+  test('resolves provider install requests from selectors and explicit skills', () => {
+    expect(resolveProviderInstallRequest('wshobson/agents@typescript-advanced-types'))
+      .toEqual(
+        expect.objectContaining({
+          installLocator: 'github:wshobson/agents',
+          skills: ['typescript-advanced-types'],
+          selector: 'wshobson/agents@typescript-advanced-types',
+        }),
+      );
+    expect(
+      resolveProviderInstallRequest('github:vercel-labs/agent-skills', [
+        'web-design-guidelines',
+      ]),
+    ).toEqual(
+      expect.objectContaining({
+        installLocator: 'github:vercel-labs/agent-skills',
+        skills: ['web-design-guidelines'],
+        selector: null,
+      }),
+    );
+  });
+
   test('detects and applies updates from a local git source', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const repoDir = await makeTempDir('agentpm-git-source-');
@@ -95,7 +201,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('CLI update prints a success message after applying changes', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -134,7 +240,7 @@ describe('update and cli flows', () => {
         'utf8',
       ),
     ).toContain('Updated by CLI.');
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('installs a specific git commit when a ref is pinned', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -171,7 +277,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('cache clean removes unused repository caches without clearing the index', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -200,7 +306,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('cache clean dry run reports unused caches without deleting them', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -225,7 +331,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('cache clean preserves reusable push target repositories', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -271,7 +377,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('source add and install reuse a single cached checkout for the same git repo', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -298,7 +404,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('doctor plans and applies a transparent fix for an unused missing source', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -376,7 +482,7 @@ describe('update and cli flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('CLI search hints stale indexes and --refresh rebuilds them', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -414,7 +520,168 @@ describe('update and cli flows', () => {
     });
     expect(refreshed.stdout).toContain('Source Refresh');
     expect(refreshed.stdout).toContain('catalog  new-skill');
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
+
+  test('skills search uses the provider bridge and supports json output', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    const binDir = await createFakeNpx(homeDir);
+
+    const { stdout } = await runCli(['skills', 'search', 'typescript', '--json'], {
+      cwd: projectDir,
+      env: withPrependedPath(binDir, { AGENTPM_HOME: homeDir }),
+    });
+
+    const results = JSON.parse(stdout) as Array<Record<string, unknown>>;
+    expect(results[0]?.skillSelector).toBe(
+      'wshobson/agents@typescript-advanced-types',
+    );
+    expect(results[1]?.installLocator).toBe('github:github/awesome-copilot');
+  }, CI_TEST_TIMEOUT);
+
+  test('skills search fails clearly when the provider bridge command is unavailable', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const projectDir = await makeTempDir('agentpm-project-');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir, PATH: '' },
+    });
+    try {
+      await expect(service.searchProviderSkills('typescript')).rejects.toThrow(
+        'Could not run `npx skills`',
+      );
+    } finally {
+      service.close();
+    }
+  });
+
+  test('skills install reuses the normal install flow for repo-and-skill input', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    const { stdout } = await runCli(
+      ['skills', 'install', repoDir, '--skill', 'skill-a', '--project', '--yes'],
+      {
+        cwd: projectDir,
+        env: { AGENTPM_HOME: homeDir },
+      },
+    );
+
+    expect(stdout).toContain('Installed');
+    expect(
+      await fs.readFile(
+        path.join(projectDir, '.codex', 'skills', 'skill-a', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toContain('# Skill A');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      expect(service.listSources()).toHaveLength(1);
+      expect(service.listSources()[0]?.locator).toBe(path.resolve(repoDir));
+    } finally {
+      service.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
+  test('skills list shows provider-tagged installs', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    await runCli(
+      ['skills', 'install', repoDir, '--skill', 'skill-a', '--project', '--yes'],
+      {
+        cwd: projectDir,
+        env: { AGENTPM_HOME: homeDir },
+      },
+    );
+
+    const { stdout } = await runCli(['skills', 'list', '--json'], {
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+
+    const installs = JSON.parse(stdout) as Array<Record<string, unknown>>;
+    expect(installs).toHaveLength(1);
+    expect(installs[0]?.name).toBe('skill-a');
+    expect(installs[0]?.source).toBe(path.resolve(repoDir));
+    expect(installs[0]?.skillSelector).toBeNull();
+  }, CI_TEST_TIMEOUT);
+
+  test('skills remove removes a provider-tagged install', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    await runCli(
+      ['skills', 'install', repoDir, '--skill', 'skill-a', '--project', '--yes'],
+      {
+        cwd: projectDir,
+        env: { AGENTPM_HOME: homeDir },
+      },
+    );
+
+    const { stdout } = await runCli(['skills', 'remove', 'skill-a'], {
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+
+    expect(stdout).toContain('Removed');
+    expect(
+      await fs
+        .stat(path.join(projectDir, '.codex', 'skills', 'skill-a'))
+        .catch(() => null),
+    ).toBeNull();
+  }, CI_TEST_TIMEOUT);
+
+  test('skills update updates only provider-tagged installs', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const repoDir = await makeTempDir('agentpm-git-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), repoDir);
+    initFixtureGitRepo(repoDir);
+
+    await runCli(
+      ['skills', 'install', repoDir, '--skill', 'skill-a', '--project', '--yes'],
+      {
+        cwd: projectDir,
+        env: { AGENTPM_HOME: homeDir },
+      },
+    );
+
+    await writeFile(
+      path.join(repoDir, '.codex', 'skills', 'skill-a', 'SKILL.md'),
+      '# Skill A\n\nUpdated by provider bridge.\n',
+    );
+    git(repoDir, 'add', '.');
+    git(repoDir, 'commit', '-m', 'update provider skill');
+
+    const { stdout } = await runCli(['skills', 'update', '--yes'], {
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+
+    expect(stdout).toContain('Update complete');
+    expect(stdout).toContain('skills.sh item(s) updated');
+    expect(
+      await fs.readFile(
+        path.join(projectDir, '.codex', 'skills', 'skill-a', 'SKILL.md'),
+        'utf8',
+      ),
+    ).toContain('Updated by provider bridge.');
+  }, CI_TEST_TIMEOUT);
 
   test('prints CLI help through tsx', async () => {
     const { stdout } = await runCli(['--help'], {
@@ -429,6 +696,8 @@ describe('update and cli flows', () => {
     expect(stdout).toContain('cache clean --dry-run');
     expect(stdout).toContain('source skills');
     expect(stdout).toContain('install --from');
+    expect(stdout).toContain('skills search typescript');
+    expect(stdout).toContain('skills install wshobson/agents@typescript-advanced-types --project');
     expect(stdout).toContain('target add production');
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 });
