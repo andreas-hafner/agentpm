@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Git-native private-first skill installs and team sync for AI coding workflows.</strong><br />
-  Discover, install, update, and push skills from repos, folders, and owned indexes, with an optional public skills.sh bridge when you need to pull from the wider ecosystem.
+  Discover, install, update, and push skills from repos and folders. Add skills using the skills.sh bridge for wider ecosystem.
 </p>
 
 <p align="center">
@@ -25,24 +25,21 @@ pnpm run install:global
 agentpm --help
 ```
 
-AgentPM works in two modes: local installs stay local by default, while a committed `agentpm.yaml` turns a repo into a shared contract for reproducible skill sync. Generated skill folders, caches, symlinks, and credentials stay local.
+AgentPM works in two modes:
+1) <strong>Skill Package Manager</strong> with update function for local installs
+2) A committed <strong>`agentpm.yaml`</strong> turns a repo into a shared contract for reproducible skill sync where generated skill folders, caches and credentials stay local.
 
 ## Features
 
-- `agentpm.yaml` project contracts with string and detailed object `skills` entries
-- Deterministic `agentpm sync` from configured sources in file order
-- Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
-- `agentpm skills search`, `install`, `list`, `update`, and `remove` for no-key public discovery/import through the official `npx skills` CLI
-- Runtime targets for `codex`, `claude`, and `generic` native layouts
-- Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
-- Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
-- `agentpm source skills` to preview installable entries from a configured source or a direct repo locator
-- Search hints when configured source indexes may be stale, with `agentpm search --refresh` for one-step refresh and search
-- `agentpm install --from <repo-or-source>` for one-command repo install flows without a separate search step
-- Runtime context resolution across global, project, and temporary layers without writing project runtime folders
-- Diagnostics for malformed config, unavailable sources, missing generated targets, broken links, and tracked generated artifacts
-- Interactive update previews for Git-backed installs, layout migration warnings, and local source drift checks
-- Structured cache cleanup with `agentpm cache clean --dry-run` while preserving active install caches and the local search index
+- `agentpm install --from <repo-or-source>` for one-command install
+- Add public GitHub, private Git/SSH, local folder, static registries as sources
+- Search skills on all configured sources with automatic repository inspection
+- Source indexes rebuilt on `source add` and refresh on `agentpm refresh`
+- `agentpm skills` commands for public discovery through the official `npx skills` CLI
+- `agentpm init` adds a `agentpm.yaml` for project-level skill dependencies
+- Push your own skills from any folder to your private repository using `agentpm push`
+- Deterministic `agentpm sync` from configured sources
+- Diagnostics for malformed config and unavailable sources
 
 ## Getting started
 
@@ -65,6 +62,8 @@ If pnpm reports that no global bin directory is configured, run `pnpm setup`, re
 
 Create and commit `agentpm.yaml` when you want a repository-level skill contract:
 
+A `agentpm.yaml` file looks like this:
+
 ```yaml
 sources:
   - id: internal
@@ -84,14 +83,6 @@ skills:
     scope: project
     items:
       - audio-mastering
-
-  - name: shared-review
-    source: registry
-    target: generic
-    scope: workspace
-    workspaceRoot: ..
-    items:
-      - review/checklists
 ```
 
 String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
@@ -111,7 +102,7 @@ skills:
 
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
-`skills.sh` is available as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
+`skills.sh` is available as a public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
@@ -182,7 +173,6 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 - If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
 - Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
 - The target repository can be empty. AgentPM reuses a cached checkout for repeat pushes, copies the selected entries into place, commits, and pushes `HEAD`.
-- Raw Git clone, commit, and push output stays hidden behind concise AgentPM status messages.
 
 ## Docs
 
