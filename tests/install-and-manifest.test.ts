@@ -173,6 +173,61 @@ describe('install and manifest flows', () => {
     }
   });
 
+  test('skills.sh bridge installs persist resolved sources and provenance into agentpm.yaml for later sync', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectA = await makeTempDir('agentpm-project-a-');
+    const projectB = await makeTempDir('agentpm-project-b-');
+    await copyDir(path.resolve('tests/fixtures/repos/codex'), sourceDir);
+    initFixtureGitRepo(sourceDir);
+    await fs.writeFile(
+      path.join(projectA, 'agentpm.yaml'),
+      'version: 1\nskills: []\n',
+      'utf8',
+    );
+
+    const serviceA = new AgentPmService({
+      cwd: projectA,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const installs = await serviceA.installProviderSkill(sourceDir, {
+        scope: 'project',
+        skills: ['skill-a'],
+      });
+      expect(installs).toHaveLength(1);
+
+      const { loadProjectConfig } = await import('@agentpm/config');
+      const config = await loadProjectConfig(projectA);
+      expect(config?.manifest.sources).toHaveLength(1);
+      expect(config?.manifest.sources[0]?.locator).toBe(path.resolve(sourceDir));
+      expect(config?.manifest.installs[0]?.name).toBe('skill-a');
+      expect(config?.manifest.installs[0]?.provider).toBe('skills.sh');
+      expect(config?.manifest.installs[0]?.selector).toBeUndefined();
+    } finally {
+      serviceA.close();
+    }
+
+    await fs.copyFile(
+      path.join(projectA, 'agentpm.yaml'),
+      path.join(projectB, 'agentpm.yaml'),
+    );
+
+    const serviceB = new AgentPmService({
+      cwd: projectB,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      const installs = await serviceB.syncManifest();
+      expect(installs.some((install) => install.name === 'skill-a')).toBe(true);
+      expect(
+        await fs.lstat(path.join(projectB, '.codex', 'skills', 'skill-a')),
+      ).toBeTruthy();
+    } finally {
+      serviceB.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
   test('a standalone .agentpmrc does not trigger agentpm.yaml creation on install', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const sourceDir = await makeTempDir('agentpm-source-');

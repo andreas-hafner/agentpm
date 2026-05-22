@@ -33,7 +33,7 @@ Summarizes the runtime package split and the main command execution flow.
 - Public no-key discovery lives in a provider bridge under `packages/core`, not in `packages/registry`.
 - `agentpm.yaml` is an optional committed project config that enables shared contract mode. `.agentpmrc` is an optional local override or compatibility fallback.
 - Project config sources support shorthands such as `skills.sh`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`.
-- `agentpm skills search` shells out to `npx skills find`, disables provider telemetry by default, parses provider selectors like `owner/repo@skill`, and the `skills install/list/update/remove` bridge commands reuse normal AgentPM install state while tagging provider-backed installs in metadata.
+- `agentpm skills search` shells out to `npx skills find`, disables provider telemetry by default, parses provider selectors like `owner/repo@skill`, and the `skills install/list/update/remove` bridge commands reuse normal AgentPM install state while tagging provider-backed installs in metadata; when `agentpm.yaml` exists they also persist the resolved source plus optional provider provenance so later `sync` does not need the bridge.
 - `agentpm source skills` lists installable entries from a configured source or a direct repo locator, and `agentpm install --from <locator>` reuses the same service-layer selection flow for direct repo installs.
 - `agentpm.yaml` skills can be string shorthand or detailed objects with `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`.
 - `target` is the public project-config selector for native layouts (`codex`, `claude`, or `generic`); `adapter` remains a compatibility alias.

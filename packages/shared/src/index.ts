@@ -174,6 +174,8 @@ export interface ManifestInstallSpec {
   target?: AdapterId | undefined;
   adapter?: AdapterId | undefined;
   workspaceRoot?: string | undefined;
+  provider?: string | undefined;
+  selector?: string | undefined;
 }
 
 export type PushTargetKind = 'git' | 'registry';
@@ -204,6 +206,8 @@ export interface ProjectSkillObjectSpec {
   target?: AdapterId | undefined;
   adapter?: AdapterId | undefined;
   workspaceRoot?: string | undefined;
+  provider?: string | undefined;
+  selector?: string | undefined;
 }
 
 export type ProjectSkillSpec = string | ProjectSkillObjectSpec;

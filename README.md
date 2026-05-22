@@ -96,12 +96,27 @@ skills:
 
 String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
 
+When `agentpm.yaml` already exists, bridge installs from `agentpm skills install` are saved the same way: AgentPM persists the resolved source it can sync later, and can also keep optional provenance metadata from the public bridge.
+
+```yaml
+skills:
+  - name: typescript-advanced-types
+    source: public-types
+    items:
+      - typescript-advanced-types
+    scope: project
+    provider: skills.sh
+    selector: wshobson/agents@typescript-advanced-types
+```
+
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
 `skills.sh` is supported in two ways:
 
 - as a built-in registry source when `SKILLS_SH_API_KEY` or `SKILLS_API_KEY` is available
 - as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`
+
+If that bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 

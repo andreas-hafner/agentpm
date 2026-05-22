@@ -17,6 +17,7 @@ This repo uses a simple release workflow:
 - First start now offers `skills.sh` as the default public registry only when a `SKILLS_SH_API_KEY` or `SKILLS_API_KEY` is already configured.
 - Added a no-key `skills.sh` CLI bridge with `agentpm skills search` and `agentpm skills install`, so public discovery/import can reuse the official `npx skills` workflow without changing AgentPM's private-first Git install model.
 - Added `agentpm skills list`, `agentpm skills update`, and `agentpm skills remove` so provider-backed installs can be managed through the same bridge workflow after import.
+- Provider-backed installs saved into `agentpm.yaml` now persist the resolved syncable source plus optional `skills.sh` provenance, so later `agentpm sync` works without the bridge.
 
 ## [0.5.1] - 2026-05-21
 

@@ -564,7 +564,7 @@ export class AgentPmService {
       addSource: true,
       skills: request.skills,
     });
-    return installs.map((install) =>
+    const taggedInstalls = installs.map((install) =>
       this.db.saveInstall({
         ...install,
         metadata: {
@@ -579,6 +579,10 @@ export class AgentPmService {
         updatedAt: nowIso(),
       }),
     );
+    if (taggedInstalls.length > 0 && options.updateProjectConfig !== false) {
+      await this.updateExistingProjectConfig(taggedInstalls);
+    }
+    return taggedInstalls;
   }
 
   async removeProviderSkill(
@@ -1281,6 +1285,14 @@ export class AgentPmService {
       target: install.adapter,
       workspaceRoot:
         install.scope === 'workspace' ? install.scopeRoot : undefined,
+      provider:
+        typeof install.metadata.provider === 'string'
+          ? install.metadata.provider
+          : undefined,
+      selector:
+        typeof install.metadata.providerSkillSelector === 'string'
+          ? install.metadata.providerSkillSelector
+          : undefined,
     };
   }
 
