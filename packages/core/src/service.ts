@@ -2212,9 +2212,6 @@ export class AgentPmService {
 
   private normalizeLocator(locator: string, kind: SourceKind): string {
     const trimmed = locator.trim();
-    if (trimmed === 'skills.sh' || trimmed === 'www.skills.sh') {
-      return 'https://skills.sh';
-    }
     if (trimmed.startsWith('registry+https://')) {
       return trimmed.slice('registry+'.length);
     }

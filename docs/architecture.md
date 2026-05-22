@@ -17,7 +17,7 @@ AgentPM is a Git-native CLI for discovering and managing AI skills and agent ass
 - `packages/config`: AgentPM home resolution and YAML config or manifest IO.
 - `packages/db`: SQLite persistence and migrations.
 - `packages/git`: shallow sparse Git release materialization and revision checks.
-- `packages/registry`: static registry index loading plus the built-in `skills.sh` registry loader.
+- `packages/registry`: static registry index loading (local or HTTP YAML/JSON indexes).
 - `packages/adapters`: repository layout detection and install mapping.
 - `packages/fs`: file walking, diffing, and safe link management.
 - `packages/ui`: interactive Ink prompts.
@@ -69,7 +69,7 @@ Without `agentpm.yaml`, `agentpm install --project` and `agentpm install --works
 
 The resolver may index configured sources into AgentPM state, but it does not create native project skill folders or symlinks.
 
-Supported source shorthands include `skills.sh`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Supported source shorthands include `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 
 Public no-key discovery and import is available separately through `agentpm skills search` and `agentpm skills install`, which bridge to the official `npx skills` CLI and then hand normalized Git locators back into AgentPM's normal install flow.
 

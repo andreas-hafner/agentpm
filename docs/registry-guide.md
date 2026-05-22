@@ -1,11 +1,6 @@
 # Registry Guide
 
-AgentPM supports two registry patterns under the same `registry` source kind:
-
-- the built-in `skills.sh` API integration
-- static YAML or JSON indexes served from local files or HTTPS URLs
-
-Smaller or custom public registries should use the static index route unless AgentPM adds a dedicated built-in adapter for them.
+AgentPM supports static YAML or JSON registry indexes served from local files or HTTPS URLs under the `registry` source kind.
 
 The `skills.sh` CLI bridge is separate from this registry model. Use `agentpm skills search` and `agentpm skills install` when you want no-key public discovery or import without treating the provider as a normal indexed source.
 
@@ -29,7 +24,6 @@ entries:
 
 ## Behavior
 
-- Add `skills.sh` with `agentpm source add skills.sh`. This built-in source currently requires `SKILLS_SH_API_KEY` or `SKILLS_API_KEY`.
 - Add a registry index with `agentpm source add <path-or-url-to-index>`.
 - Use `registry:<path-or-url-to-index>` when a source should be treated as a registry even if the locator does not end in `.yaml`, `.yml`, or `.json`.
 - Registry search is backed by local indexes for configured sources. Rebuild indexes with `agentpm refresh`.

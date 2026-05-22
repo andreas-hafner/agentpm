@@ -397,13 +397,6 @@ export function isGitSshLocator(value: string): boolean {
   return /^[^@\s]+@[^:\s]+:.+/i.test(value);
 }
 
-export function isSkillsShLocator(value: string): boolean {
-  if (!isHttpUrl(value)) {
-    return false;
-  }
-  const url = new URL(value);
-  return url.hostname === 'skills.sh' || url.hostname === 'www.skills.sh';
-}
 
 export function isGitRevision(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
@@ -441,9 +434,6 @@ export function sortBy<T>(
 
 export function classifyLocator(locator: string): SourceKind {
   const normalized = locator.trim();
-  if (normalized === 'skills.sh' || normalized === 'www.skills.sh') {
-    return 'registry';
-  }
   if (
     normalized.startsWith('registry:') ||
     normalized.startsWith('registry+https://')
@@ -466,9 +456,6 @@ export function classifyLocator(locator: string): SourceKind {
       normalized.endsWith('.yml') ||
       normalized.endsWith('.json'))
   ) {
-    return 'registry';
-  }
-  if (isSkillsShLocator(normalized)) {
     return 'registry';
   }
   if (

@@ -442,40 +442,9 @@ function printInstalledProviderSkills(results: ProviderInstalledSkillRecord[]): 
   console.log('');
 }
 
-async function checkFirstStart(service: AgentPmService): Promise<void> {
-  const sources = service.listSources();
-  if (sources.length > 0) {
-    return;
-  }
-  if (!process.stdout.isTTY || !process.stdin.isTTY) {
-    return;
-  }
-
-  const hasSkillsApiKey =
-    Boolean(process.env.SKILLS_SH_API_KEY) || Boolean(process.env.SKILLS_API_KEY);
-  if (!hasSkillsApiKey) {
-    return;
-  }
-
-  const confirmed = await promptToConfirm(
-    'No skill sources configured. Add skills.sh as your default registry?',
-    [
-      'skills.sh is the built-in public registry integration for AgentPM',
-      'Your configured skills.sh API key will be used for indexing',
-    ],
-  );
-  if (confirmed) {
-    const result = await service.addSource('https://skills.sh');
-    console.log(
-      `Added ${result.source.displayName} (${result.indexedEntries} entries indexed)`,
-    );
-  }
-}
-
 async function withService<T>(
   callback: (service: AgentPmService) => Promise<T>,
   options: {
-    checkFirstStart?: boolean;
     statusMessages?: boolean;
   } = {},
 ): Promise<T> {
@@ -489,9 +458,6 @@ async function withService<T>(
           },
   });
   try {
-    if (options.checkFirstStart !== false) {
-      await checkFirstStart(service);
-    }
     return await callback(service);
   } finally {
     service.close();
@@ -542,9 +508,6 @@ skillsCmd
   .action(async (query: string, flags: { json?: boolean }) => {
     const results = await withService(
       (service) => service.searchProviderSkills(query),
-      {
-        checkFirstStart: false,
-      },
     );
     if (flags.json) {
       console.log(JSON.stringify(results, null, 2));
@@ -591,9 +554,6 @@ skillsCmd
             target: resolveTarget(flags.target),
             yes: flags.yes,
           }),
-        {
-          checkFirstStart: false,
-        },
       );
       for (const install of installs) {
         console.log(
@@ -610,9 +570,6 @@ skillsCmd
   .action(async (flags: { json?: boolean }) => {
     const installs = await withService(
       (service) => Promise.resolve(service.listProviderSkillInstalls()),
-      {
-        checkFirstStart: false,
-      },
     );
     if (flags.json) {
       console.log(JSON.stringify(installs, null, 2));
@@ -628,9 +585,6 @@ skillsCmd
   .action(async (identifier: string, flags: { purge?: boolean }) => {
     const removed = await withService(
       (service) => service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
-      {
-        checkFirstStart: false,
-      },
     );
     const selector =
       typeof removed.metadata.providerSkillSelector === 'string'
@@ -693,8 +647,6 @@ skillsCmd
         console.log(
           `\n${symbols.success} ${style.bold('Update complete')} ${style.gray(`(${updatedCount} skills.sh item(s) updated)`)}\n`,
         );
-      }, {
-        checkFirstStart: false,
       });
     },
   );
@@ -703,9 +655,7 @@ source
   .command('add')
   .argument('<locator>', 'Git URL, local folder, or registry index path')
   .action(async (locator: string) => {
-    const result = await withService((service) => service.addSource(locator), {
-      checkFirstStart: false,
-    });
+    const result = await withService((service) => service.addSource(locator));
     console.log(
       `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
     );
@@ -714,9 +664,6 @@ source
 source.command('list').action(async () => {
   const sources = await withService((service) =>
     Promise.resolve(service.listSources()),
-    {
-      checkFirstStart: false,
-    },
   );
   if (sources.length === 0) {
     console.log('No sources configured.');
@@ -747,9 +694,6 @@ source
               ? { target: resolveTarget(flags.target) }
               : {}),
           }),
-        {
-          checkFirstStart: false,
-        },
       );
       if (flags.json) {
         console.log(JSON.stringify(result, null, 2));
@@ -763,9 +707,7 @@ source
   .command('remove')
   .argument('<source>', 'Source id or locator')
   .action(async (sourceToken: string) => {
-    await withService((service) => service.removeSource(sourceToken), {
-      checkFirstStart: false,
-    });
+    await withService((service) => service.removeSource(sourceToken));
     console.log(
       `\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`,
     );
@@ -979,9 +921,6 @@ program
             addSource: flags.addSource,
             yes: flags.yes,
           }),
-        {
-          checkFirstStart: !flags.from,
-        },
       );
       for (const install of installs) {
         console.log(
@@ -1159,9 +1098,7 @@ program.command('init').action(async () => {
 });
 
 program.command('sync').action(async () => {
-  const installs = await withService((service) => service.syncManifest(), {
-    checkFirstStart: false,
-  });
+  const installs = await withService((service) => service.syncManifest());
   for (const install of installs) {
     console.log(
       `${symbols.success} ${style.bold('Synced')} ${style.green(install.name)}`,
@@ -1180,9 +1117,6 @@ program
     const graph = await withService(
       (service) =>
         service.resolveRuntimeContext({ temporarySkills: flags.temp ?? [] }),
-      {
-        checkFirstStart: false,
-      },
     );
     if (flags.json) {
       console.log(JSON.stringify(graph, null, 2));

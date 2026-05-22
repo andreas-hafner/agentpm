@@ -69,9 +69,9 @@ describe('inspect and search', () => {
     }
   });
 
-  test('recognizes skills.sh but not skillshub.wtf as a dedicated registry locator', () => {
-    expect(classifyLocator('skills.sh')).toBe('registry');
-    expect(classifyLocator('https://skills.sh')).toBe('registry');
+  test('does not treat skills.sh as a dedicated registry locator', () => {
+    expect(classifyLocator('skills.sh')).toBe('local');
+    expect(classifyLocator('https://skills.sh')).toBe('git');
     expect(classifyLocator('skillshub.wtf')).toBe('local');
     expect(classifyLocator('https://skillshub.wtf')).toBe('git');
   });

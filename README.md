@@ -31,7 +31,7 @@ AgentPM works in two modes: local installs stay local by default, while a commit
 
 - `agentpm.yaml` project contracts with string and detailed object `skills` entries
 - Deterministic `agentpm sync` from configured sources in file order
-- Public GitHub, private Git/SSH, local folder, `skills.sh`, static registry, and private HTTP registry sources
+- Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
 - `agentpm skills search`, `install`, `list`, `update`, and `remove` for no-key public discovery/import through the official `npx skills` CLI
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
@@ -111,12 +111,7 @@ skills:
 
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
-`skills.sh` is supported in two ways:
-
-- as a built-in registry source when `SKILLS_SH_API_KEY` or `SKILLS_API_KEY` is available
-- as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`
-
-If that bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
+`skills.sh` is available as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 

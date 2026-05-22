@@ -73,9 +73,9 @@ Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM resto
 
 `.agentpmrc` is reserved for local-only overrides or compatibility fallback and should normally stay uncommitted.
 
-Source entries may be full Git URLs or shorthands such as `skills.sh`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. `skills.sh` as a native registry source currently requires `SKILLS_SH_API_KEY` or `SKILLS_API_KEY`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Source entries may be full Git URLs or shorthands such as `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 
-If you do not have a `skills.sh` API key, use the public bridge instead:
+For public no-key discovery and import, use the skills.sh CLI bridge:
 
 ```bash
 agentpm skills search typescript

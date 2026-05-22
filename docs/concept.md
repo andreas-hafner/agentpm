@@ -197,7 +197,7 @@ too provider-specific / messy.
 
 Pluggable providers:
 
-- Public registry (skills.sh-like)
+- Public registry
 - GitHub repo
 - GitLab repo
 - Local folder
@@ -208,7 +208,6 @@ Config:
 
 ```yaml
 sources:
-  - skills.sh
   - git@github.com:me/private-skills.git
   - company-registry.internal
   - ~/local-skills
