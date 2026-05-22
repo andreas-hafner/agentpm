@@ -1,7 +1,5 @@
 import path from 'node:path';
 import https from 'node:https';
-import { setTimeout } from 'node:timers/promises';
-
 import yaml from 'js-yaml';
 
 import { pathExists, readTextFile } from '@agentpm/fs';
@@ -10,7 +8,6 @@ import {
   type RegistryIndexEntry,
   type RegistryIndexFile,
   isHttpUrl,
-  isSkillsHubLocator,
   isSkillsShLocator,
 } from '@agentpm/shared';
 
@@ -257,82 +254,11 @@ async function loadSkillsShIndex(locator: string): Promise<RegistryIndexFile> {
   return { version: 1, entries };
 }
 
-interface SkillsHubSkill {
-  id: string;
-  slug: string;
-  name: string;
-  description: string;
-  tags: string[];
-  repo: {
-    githubOwner: string;
-    githubRepoName: string;
-  };
-}
-
-interface SkillsHubResponse {
-  data: SkillsHubSkill[];
-  total: number;
-  page: number;
-  limit: number;
-  hasMore: boolean;
-}
-
-function resolveSkillsHubApiUrl(locator: string): string {
-  const url = new URL(locator);
-  if (url.pathname.startsWith('/api/v1/')) {
-    return url.href;
-  }
-  return `${url.protocol}//${url.host}/api/v1/skills/search`;
-}
-
-async function fetchSkillsHubPage(
-  apiUrl: string,
-  page: number,
-  limit: number,
-): Promise<SkillsHubResponse> {
-  const url = new URL(apiUrl);
-  url.searchParams.set('page', String(page));
-  url.searchParams.set('limit', String(limit));
-  const text = await httpsGet(url.href);
-  return JSON.parse(text) as SkillsHubResponse;
-}
-
-async function loadSkillsHubIndex(locator: string): Promise<RegistryIndexFile> {
-  const apiUrl = resolveSkillsHubApiUrl(locator);
-  const entries: RegistryIndexEntry[] = [];
-  let page = 1;
-  const limit = 50;
-  const maxPages = 20;
-
-  for (;;) {
-    const body = await fetchSkillsHubPage(apiUrl, page, limit);
-    for (const skill of body.data) {
-      entries.push({
-        name: skill.slug,
-        description: skill.name,
-        repo: `https://github.com/${skill.repo.githubOwner}/${skill.repo.githubRepoName}`,
-        path: skill.slug,
-        tags: skill.tags.length > 0 ? skill.tags : ['skillshub'],
-      });
-    }
-    if (!body.hasMore || page >= maxPages) {
-      break;
-    }
-    page++;
-    await setTimeout(500);
-  }
-
-  return { version: 1, entries };
-}
-
 export async function loadRegistryIndex(
   locator: string,
 ): Promise<RegistryIndexFile> {
   if (isSkillsShLocator(locator)) {
     return loadSkillsShIndex(locator);
-  }
-  if (isSkillsHubLocator(locator)) {
-    return loadSkillsHubIndex(locator);
   }
   const content = await readRegistryLocator(locator);
   return parseRegistryContent(locator, content);

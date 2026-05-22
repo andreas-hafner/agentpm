@@ -8,6 +8,16 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.6.0] - 2026-05-21
+
+### Changed
+
+- `skillshub.wtf` is no longer treated as a built-in registry adapter or shorthand source. Smaller registries should be added through static `registry:<url-or-path>` indexes instead.
+- `skills.sh` remains the built-in public registry integration and now stands alone beside static local or HTTP registry indexes under the `registry` source kind.
+- First start now offers `skills.sh` as the default public registry only when a `SKILLS_SH_API_KEY` or `SKILLS_API_KEY` is already configured.
+- Added a no-key `skills.sh` CLI bridge with `agentpm skills search` and `agentpm skills install`, so public discovery/import can reuse the official `npx skills` workflow without changing AgentPM's private-first Git install model.
+- Added `agentpm skills list`, `agentpm skills update`, and `agentpm skills remove` so provider-backed installs can be managed through the same bridge workflow after import.
+
 ## [0.5.1] - 2026-05-21
 
 ### Changed

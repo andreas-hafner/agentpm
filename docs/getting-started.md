@@ -73,7 +73,14 @@ Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM resto
 
 `.agentpmrc` is reserved for local-only overrides or compatibility fallback and should normally stay uncommitted.
 
-Source entries may be full Git URLs or shorthands such as `skills.sh`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Source entries may be full Git URLs or shorthands such as `skills.sh`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. `skills.sh` as a native registry source currently requires `SKILLS_SH_API_KEY` or `SKILLS_API_KEY`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+
+If you do not have a `skills.sh` API key, use the public bridge instead:
+
+```bash
+agentpm skills search typescript
+agentpm skills install wshobson/agents@typescript-advanced-types --project
+```
 
 Adding a source immediately rebuilds the local searchable index for that source. Use `agentpm refresh` to rebuild all configured source indexes later, or pass source ids or locators to refresh only selected sources. `agentpm search --refresh <query>` refreshes before searching when you expect new Git repository entries, and normal search prints a stale-index hint when no matches are found. `agentpm update --refresh` refreshes source indexes before showing the update preview.
 
@@ -84,6 +91,7 @@ If you want to inspect a private repo before adding it, use `agentpm source skil
 ```bash
 agentpm source add git@github.com:company/private-skills.git
 agentpm source skills git@github.com:company/private-skills.git
+agentpm skills search typescript
 agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source
 agentpm source add registry:https://registry.example.com/agentpm/index.yaml
 agentpm inspect git@github.com:company/private-skills.git --target codex

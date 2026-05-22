@@ -3,6 +3,8 @@ import { Command } from 'commander';
 import {
   AgentPmService,
   type InstallOptions,
+  type ProviderInstalledSkillRecord,
+  type ProviderSkillSearchResult,
   type UpdateOptions,
 } from '@agentpm/core';
 import { createPromptApi, promptToConfirm } from '@agentpm/ui';
@@ -395,6 +397,51 @@ function printSourceEntries(
   console.log('');
 }
 
+function printProviderEntries(results: ProviderSkillSearchResult[]): void {
+  section('Public Skills');
+  if (results.length === 0) {
+    console.log(`  ${symbols.info} No public skills found.\n`);
+    return;
+  }
+
+  for (const entry of results) {
+    const installs = entry.installs
+      ? `${style.cyan(entry.installs)} ${style.gray('installs')}`
+      : style.gray('installs unknown');
+    console.log(
+      `  ${symbols.success} ${style.bold(entry.skillSelector)} ${style.gray('·')} ${installs}`,
+    );
+    console.log(
+      `    ${style.gray('repo')} ${style.cyan(entry.source)} ${style.gray('→')} ${entry.installLocator}`,
+    );
+    if (entry.url) {
+      console.log(`    ${style.gray('url ')} ${entry.url}`);
+    }
+  }
+  console.log(
+    `\n  ${symbols.info} Install with ${style.bold('agentpm skills install <owner/repo@skill>')}\n`,
+  );
+}
+
+function printInstalledProviderSkills(results: ProviderInstalledSkillRecord[]): void {
+  section('Installed Public Skills');
+  if (results.length === 0) {
+    console.log(`  ${symbols.info} No skills.sh installs found.\n`);
+    return;
+  }
+
+  for (const entry of results) {
+    console.log(
+      `  ${symbols.success} ${style.bold(entry.skillSelector ?? entry.name)} ${style.gray('·')} ${entry.scope}`,
+    );
+    if (entry.source) {
+      console.log(`    ${style.gray('repo')} ${style.cyan(entry.source)}`);
+    }
+    console.log(`    ${style.gray('path')} ${entry.targetPath}`);
+  }
+  console.log('');
+}
+
 async function checkFirstStart(service: AgentPmService): Promise<void> {
   const sources = service.listSources();
   if (sources.length > 0) {
@@ -404,15 +451,21 @@ async function checkFirstStart(service: AgentPmService): Promise<void> {
     return;
   }
 
+  const hasSkillsApiKey =
+    Boolean(process.env.SKILLS_SH_API_KEY) || Boolean(process.env.SKILLS_API_KEY);
+  if (!hasSkillsApiKey) {
+    return;
+  }
+
   const confirmed = await promptToConfirm(
-    'No skill sources configured. Add SkillsHub (skillshub.wtf) as your default registry?',
+    'No skill sources configured. Add skills.sh as your default registry?',
     [
-      'SkillsHub indexes 14,000+ open-source AI agent skills',
-      'You can add more sources later with: agentpm source add <url>',
+      'skills.sh is the built-in public registry integration for AgentPM',
+      'Your configured skills.sh API key will be used for indexing',
     ],
   );
   if (confirmed) {
-    const result = await service.addSource('https://skillshub.wtf');
+    const result = await service.addSource('https://skills.sh');
     console.log(
       `Added ${result.source.displayName} (${result.indexedEntries} entries indexed)`,
     );
@@ -450,7 +503,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.5.0')
+  .version('0.6.0')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock())
@@ -460,6 +513,8 @@ program
 Examples:
   agentpm source add git@github.com:company/skills.git
   agentpm source skills github:company/private-skills
+  agentpm skills search typescript
+  agentpm skills install wshobson/agents@typescript-advanced-types --project
   agentpm search pdf --refresh
   agentpm install --from github:company/private-skills
   agentpm sync
@@ -475,6 +530,175 @@ const source = program
   .command('source')
   .alias('sources')
   .description('Manage sources');
+
+const skillsCmd = program
+  .command('skills')
+  .description('Search and import public skills through the skills.sh CLI bridge');
+
+skillsCmd
+  .command('search')
+  .argument('<query>', 'Search query for skills.sh')
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (query: string, flags: { json?: boolean }) => {
+    const results = await withService(
+      (service) => service.searchProviderSkills(query),
+      {
+        checkFirstStart: false,
+      },
+    );
+    if (flags.json) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+    printProviderEntries(results);
+  });
+
+skillsCmd
+  .command('install')
+  .argument(
+    '<source-or-selector>',
+    'Provider selector like owner/repo@skill, or a repo/url plus --skill',
+  )
+  .option('--skill <name>', 'Skill name when passing a repo or URL', collect, [])
+  .option('--global', 'Install to the global native target')
+  .option('--project', 'Install to the current project')
+  .option('--workspace', 'Install to a workspace root')
+  .option('--workspace-root <path>', 'Explicit workspace root')
+  .option(
+    '--target <target>',
+    'Install only entries for codex, claude, or generic',
+  )
+  .option('--yes', 'Accept safe install prompts automatically')
+  .action(
+    async (
+      sourceOrSelector: string,
+      flags: InstallOptions & {
+        global?: boolean;
+        project?: boolean;
+        workspace?: boolean;
+        workspaceRoot?: string;
+        skill?: string[];
+        target?: string;
+        yes?: boolean;
+      },
+    ) => {
+      const installs = await withService(
+        (service) =>
+          service.installProviderSkill(sourceOrSelector, {
+            scope: resolveScope(flags),
+            workspaceRoot: flags.workspaceRoot,
+            skills: flags.skill,
+            target: resolveTarget(flags.target),
+            yes: flags.yes,
+          }),
+        {
+          checkFirstStart: false,
+        },
+      );
+      for (const install of installs) {
+        console.log(
+          `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+        );
+      }
+      console.log('');
+    },
+  );
+
+skillsCmd
+  .command('list')
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (flags: { json?: boolean }) => {
+    const installs = await withService(
+      (service) => Promise.resolve(service.listProviderSkillInstalls()),
+      {
+        checkFirstStart: false,
+      },
+    );
+    if (flags.json) {
+      console.log(JSON.stringify(installs, null, 2));
+      return;
+    }
+    printInstalledProviderSkills(installs);
+  });
+
+skillsCmd
+  .command('remove')
+  .argument('<name-or-selector>', 'Installed skill name or owner/repo@skill selector')
+  .option('--purge', 'Also purge unused cache data')
+  .action(async (identifier: string, flags: { purge?: boolean }) => {
+    const removed = await withService(
+      (service) => service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
+      {
+        checkFirstStart: false,
+      },
+    );
+    const selector =
+      typeof removed.metadata.providerSkillSelector === 'string'
+        ? removed.metadata.providerSkillSelector
+        : removed.name;
+    console.log(
+      `\n${symbols.success} ${style.bold('Removed')} ${style.green(selector)}\n`,
+    );
+  });
+
+skillsCmd
+  .command('update')
+  .argument('[skills...]', 'Optional installed skill names or owner/repo@skill selectors')
+  .option('--yes', 'Confirm risky remaps automatically')
+  .action(
+    async (identifiers: string[], flags: { yes?: boolean }) => {
+      await withService(async (service) => {
+        const previews = await service.updateProviderSkills(identifiers, {
+          apply: false,
+        });
+        if (previews.length === 0) {
+          console.log(`\n${symbols.info} No skills.sh installs found.\n`);
+          return;
+        }
+        printUpdates(previews);
+
+        const changed = previews.filter((preview) => preview.changed);
+        if (changed.length === 0) {
+          return;
+        }
+
+        if (!flags.yes) {
+          const confirmed = await promptToConfirm(
+            'Do you want to update these skills.sh installs? [y/N]',
+            changed.map((preview) => {
+              const selector =
+                typeof preview.install.metadata.providerSkillSelector === 'string'
+                  ? preview.install.metadata.providerSkillSelector
+                  : preview.install.name;
+              return `${selector}: ${preview.currentRevision?.slice(0, 7) ?? 'n/a'} -> ${preview.candidateRevision?.slice(0, 7) ?? 'n/a'}`;
+            }),
+          );
+          if (!confirmed) {
+            console.log(`\n${symbols.info} Update skipped.\n`);
+            return;
+          }
+        }
+
+        const applied = await service.updateProviderSkills(identifiers, {
+          apply: true,
+          yes: Boolean(flags.yes),
+        } satisfies UpdateOptions);
+        printUpdates(applied);
+        const updatedCount = applied.filter(
+          (preview) =>
+            preview.changed &&
+            preview.nextLinkTarget &&
+            !preview.warnings.includes('Skipped by user.'),
+        ).length;
+        console.log(
+          `\n${symbols.success} ${style.bold('Update complete')} ${style.gray(`(${updatedCount} skills.sh item(s) updated)`)}\n`,
+        );
+      }, {
+        checkFirstStart: false,
+      });
+    },
+  );
+
 source
   .command('add')
   .argument('<locator>', 'Git URL, local folder, or registry index path')

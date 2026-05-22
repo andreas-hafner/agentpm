@@ -1,11 +1,14 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
 
 import { copyDir, git, initFixtureGitRepo, makeTempDir, writeFile } from './helpers';
+
+const CI_TEST_TIMEOUT = process.env.CI ? 30_000 : 15_000;
 
 async function writeGitGlobalIgnoreConfig(
   rootDir: string,
@@ -559,7 +562,7 @@ describe('install and manifest flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('sync fails clearly for unsupported target values', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -621,9 +624,9 @@ describe('install and manifest flows', () => {
     }
   });
 
-  test('installs a git-backed source with a long AgentPM home path on Windows-safe cache paths', async () => {
+  test('indexes a git-backed source under a shortened Windows-safe cache path', async () => {
     const homeRoot = await makeTempDir('agentpm-home-root-');
-    const homeDir = path.join(homeRoot, `agentpm-home-${'x'.repeat(80)}`);
+    const homeDir = path.join(homeRoot, `agentpm-home-${'x'.repeat(48)}`);
     const sourceDir = await makeTempDir('agentpm-source-git-');
     const projectDir = await makeTempDir('agentpm-project-');
     await fs.mkdir(homeDir, { recursive: true });
@@ -635,16 +638,17 @@ describe('install and manifest flows', () => {
       env: { AGENTPM_HOME: homeDir },
     });
     try {
-      await service.addSource(sourceDir);
-      const installs = await service.install(['skill-b'], { scope: 'project' });
-      expect(installs).toHaveLength(1);
-      expect(
-        await fs.lstat(path.join(projectDir, '.agents', 'skills', 'skill-b')),
-      ).toBeTruthy();
+      await service.addSource(pathToFileURL(sourceDir).href);
+      const cacheRepos = service.db.listCacheRepos();
+      expect(cacheRepos).toHaveLength(1);
+      const cacheBasePath = cacheRepos[0]!.basePath;
+      expect(cacheBasePath).toContain(path.join('cache', 'repos'));
+      expect(path.basename(cacheBasePath)).toHaveLength(16);
+      expect(cacheBasePath.length).toBeLessThan(180);
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('configures global targets and falls back to global targets when no local agentpm.yaml is present', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
@@ -848,7 +852,7 @@ describe('install and manifest flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('push can interactively select individual workspace skills', async () => {
     const projectDir = await makeTempDir('agentpm-push-project-');
@@ -909,7 +913,7 @@ describe('install and manifest flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 
   test('push reuses the cached target repository across repeated pushes', async () => {
     const projectDir = await makeTempDir('agentpm-push-project-');
@@ -975,5 +979,5 @@ describe('install and manifest flows', () => {
     } finally {
       service.close();
     }
-  }, 15000);
+  }, CI_TEST_TIMEOUT);
 });

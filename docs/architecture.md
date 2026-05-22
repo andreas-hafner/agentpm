@@ -1,12 +1,12 @@
 # Architecture
 
-AgentPM is a Git-native CLI for discovering and managing AI skills and agent assets from repositories, local folders, and static registry indexes.
+AgentPM is a Git-native CLI for discovering and managing AI skills and agent assets from repositories, local folders, owned registry indexes, and an optional public skills.sh CLI bridge.
 
 ## Runtime flow
 
 1. `apps/cli` parses commands and flags with Commander.
 2. `packages/core` resolves the action, source, scope, and confirmation policy.
-3. Specialized packages handle config, database, git or local source access, adapter detection, file linking, and output formatting.
+3. Specialized packages handle config, database, git or local source access, provider bridge execution, adapter detection, file linking, and output formatting.
 4. The database tracks sources, indexed catalog entries, cache state, and installs.
 5. Project config is declared in committed `agentpm.yaml` only for repos that opt into shared contract mode; optional `.agentpmrc` files are local-only overrides or compatibility fallbacks.
 6. Native target directories are populated with symlinks or directory junctions for install/sync flows, while `agentpm resolve` builds a runtime context graph without writing project runtime folders.
@@ -17,11 +17,11 @@ AgentPM is a Git-native CLI for discovering and managing AI skills and agent ass
 - `packages/config`: AgentPM home resolution and YAML config or manifest IO.
 - `packages/db`: SQLite persistence and migrations.
 - `packages/git`: shallow sparse Git release materialization and revision checks.
-- `packages/registry`: static registry index loading and normalization.
+- `packages/registry`: static registry index loading plus the built-in `skills.sh` registry loader.
 - `packages/adapters`: repository layout detection and install mapping.
 - `packages/fs`: file walking, diffing, and safe link management.
 - `packages/ui`: interactive Ink prompts.
-- `packages/core`: orchestration and business rules.
+- `packages/core`: orchestration, provider bridge logic, and business rules.
 
 ## Data model
 
@@ -69,7 +69,9 @@ Without `agentpm.yaml`, `agentpm install --project` and `agentpm install --works
 
 The resolver may index configured sources into AgentPM state, but it does not create native project skill folders or symlinks.
 
-Supported source shorthands include `skills.sh`, `skillshub.wtf`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Supported source shorthands include `skills.sh`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+
+Public no-key discovery and import is available separately through `agentpm skills search` and `agentpm skills install`, which bridge to the official `npx skills` CLI and then hand normalized Git locators back into AgentPM's normal install flow.
 
 `agentpm source add` stores a local index for the source. `agentpm refresh` rebuilds indexes for all configured sources, or for selected source ids and locators. `agentpm update --refresh` runs the same refresh step before checking installed skills for updates.
 

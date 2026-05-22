@@ -3,12 +3,12 @@
 <p align="center">
   <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.5.1-2563eb.svg" alt="Version 0.5.1" /></a>
+  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.6.0-2563eb.svg" alt="Version 0.6.0" /></a>
 </p>
 
 <p align="center">
-  <strong>Git-native skill installs and team sync for AI coding workflows.</strong><br />
-  Discover, install, update, and push skills from repos, folders, and registries without inventing a new package format or flattening native layouts.
+  <strong>Git-native private-first skill installs and team sync for AI coding workflows.</strong><br />
+  Discover, install, update, and push skills from repos, folders, and owned indexes, with an optional public skills.sh bridge when you need to pull from the wider ecosystem.
 </p>
 
 <p align="center">
@@ -31,7 +31,8 @@ AgentPM works in two modes: local installs stay local by default, while a commit
 
 - `agentpm.yaml` project contracts with string and detailed object `skills` entries
 - Deterministic `agentpm sync` from configured sources in file order
-- Public GitHub, private Git/SSH, local folder, static registry, and private HTTP registry sources
+- Public GitHub, private Git/SSH, local folder, `skills.sh`, static registry, and private HTTP registry sources
+- `agentpm skills search`, `install`, `list`, `update`, and `remove` for no-key public discovery/import through the official `npx skills` CLI
 - Runtime targets for `codex`, `claude`, and `generic` native layouts
 - Repository inspection for `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`
 - Local source indexes rebuilt on `source add` and refreshed with `agentpm refresh` or `agentpm update --refresh`
@@ -97,6 +98,11 @@ String entries are shorthand. Object entries bind a project skill to a configure
 
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
+`skills.sh` is supported in two ways:
+
+- as a built-in registry source when `SKILLS_SH_API_KEY` or `SKILLS_API_KEY` is available
+- as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`
+
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
 ## Installation
@@ -136,6 +142,11 @@ The smoke test builds the workspace, runs the packaged `agentpm` bin with an iso
 ```bash
 agentpm source add ./examples/repos/codex-sample
 agentpm source skills github:company/private-skills
+agentpm skills search typescript
+agentpm skills install wshobson/agents@typescript-advanced-types --project
+agentpm skills list
+agentpm skills update --yes
+agentpm skills remove typescript-advanced-types
 agentpm inspect ./examples/repos/codex-sample --skill audio-mastering --target codex
 agentpm search audio --refresh
 agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source

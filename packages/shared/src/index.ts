@@ -401,14 +401,6 @@ export function isSkillsShLocator(value: string): boolean {
   return url.hostname === 'skills.sh' || url.hostname === 'www.skills.sh';
 }
 
-export function isSkillsHubLocator(value: string): boolean {
-  if (!isHttpUrl(value)) {
-    return false;
-  }
-  const url = new URL(value);
-  return url.hostname === 'skillshub.wtf';
-}
-
 export function isGitRevision(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
 }
@@ -445,11 +437,7 @@ export function sortBy<T>(
 
 export function classifyLocator(locator: string): SourceKind {
   const normalized = locator.trim();
-  if (
-    normalized === 'skills.sh' ||
-    normalized === 'www.skills.sh' ||
-    normalized === 'skillshub.wtf'
-  ) {
+  if (normalized === 'skills.sh' || normalized === 'www.skills.sh') {
     return 'registry';
   }
   if (
@@ -476,7 +464,7 @@ export function classifyLocator(locator: string): SourceKind {
   ) {
     return 'registry';
   }
-  if (isSkillsShLocator(normalized) || isSkillsHubLocator(normalized)) {
+  if (isSkillsShLocator(normalized)) {
     return 'registry';
   }
   if (
