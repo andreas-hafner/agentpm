@@ -1,28 +1,37 @@
 <h1 align="center">AgentPM</h1>
 
 <p align="center">
-  <a href="./LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="MIT License" /></a>
+  <a href="https://www.npmjs.com/package/agentpm"><img src="https://img.shields.io/npm/v/agentpm?color=cb3837&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/agentpm"><img src="https://img.shields.io/npm/dm/agentpm?color=2563eb" alt="npm downloads" /></a>
+  <a href="https://github.com/travelhawk/agentpm/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="./apps/cli/package.json"><img src="https://img.shields.io/badge/version-0.6.0-2563eb.svg" alt="Version 0.6.0" /></a>
+  <a href="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml/badge.svg" alt="npm publish" /></a>
 </p>
 
 <p align="center">
-  <strong>Git-native private-first skill installs and team sync for AI coding workflows.</strong><br />
-  Discover, install, update, and push skills from repos and folders. Add skills using the skills.sh bridge for wider ecosystem.
+  <strong>Git-native skill management for AI coding agents.</strong><br />
+  Discover, install, update, sync, and publish skills from Git repositories, local folders, private indexes, and the public skills.sh bridge.
 </p>
 
 <p align="center">
-  <img src="./docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
+  <img src="https://raw.githubusercontent.com/travelhawk/agentpm/main/docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
 </p>
 
 ## Install
 
 ```bash
+npm install -g agentpm
+agentpm --help
+```
+
+For development from this repository checkout:
+
+```bash
 git clone https://github.com/travelhawk/agentpm.git
 cd agentpm
 pnpm install
-pnpm run install:global
-agentpm --help
+pnpm build
+pnpm run link:global
 ```
 
 AgentPM works in two modes:
@@ -31,17 +40,27 @@ AgentPM works in two modes:
 
 ## Features
 
-- `agentpm install --from <repo-or-source>` for one-command install
-- Add public GitHub, private Git/SSH, local folder, static registries as sources
-- Search skills on all configured sources with automatic repository inspection
-- Source indexes rebuilt on `source add` and refresh on `agentpm refresh`
-- `agentpm skills` commands for public discovery through the official `npx skills` CLI
-- `agentpm init` adds a `agentpm.yaml` for project-level skill dependencies
-- Push your own skills from any folder to your private repository using `agentpm push`
-- Deterministic `agentpm sync` from configured sources
-- Diagnostics for malformed config and unavailable sources
+- 🚀 **One global CLI**: install with `npm install -g agentpm`, then run `agentpm` from any repo.
+- 🧭 **Project contracts**: commit `agentpm.yaml` with `skills` entries for reproducible team sync.
+- 🔒 **Private-first sources**: use public GitHub, private Git/SSH, local folders, static registries, and private HTTP registry indexes.
+- 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official `npx skills`.
+- 🧩 **Native runtime layouts**: target `codex`, `claude`, and `generic` directories without converting source repositories.
+- 📦 **Repository inspection**: detect `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`.
+- ♻️ **Fresh indexes**: rebuild local source indexes on `source add`, `agentpm refresh`, or `agentpm update --refresh`.
+- 🛠️ **One-command installs**: run `agentpm install --from <repo-or-source>` when you already know where the skill lives.
+- 🧪 **Diagnostics and cleanup**: use `agentpm doctor --fix` and `agentpm cache clean --dry-run` for conservative maintenance.
+- 📤 **Git push flows**: publish selected local skills back into a target Git repository while preserving native paths.
 
 ## Getting started
+
+Install the published CLI:
+
+```bash
+npm install -g agentpm
+agentpm --help
+```
+
+Use the repository checkout only when developing AgentPM itself:
 
 ```bash
 pnpm install
@@ -49,14 +68,14 @@ pnpm build
 pnpm --filter agentpm exec agentpm --help
 ```
 
-If you want a global command from this repository checkout, run:
+If you want the development checkout on your global `PATH`, run:
 
 ```bash
-pnpm run install:global
+pnpm run link:global
 agentpm --help
 ```
 
-If pnpm reports that no global bin directory is configured, run `pnpm setup`, restart your terminal, then run the global install command again.
+This creates a live symlink to the local CLI. Rebuild after source changes with `pnpm build`.
 
 ## Project Config
 
@@ -106,27 +125,6 @@ Private Git sources use your existing SSH key or Git credential helper. Private 
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
-## Installation
-
-You can install the CLI globally on your machine to use `agentpm` from anywhere.
-
-From the root of this repository, use one of the following commands:
-
-**For active development (Live Symlink)**:
-
-```bash
-pnpm run link:global
-```
-
-_This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`._
-
-**For static installation**:
-
-```bash
-pnpm run install:global
-```
-
-_This installs a static copy of the CLI globally. You will need to run this command again to apply future updates._
 
 ## Smoke test
 
@@ -176,16 +174,16 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 
 ## Docs
 
-- [Getting Started](./docs/getting-started.md)
-- [Architecture](./docs/architecture.md)
-- [Adapter Guide](./docs/adapter-guide.md)
-- [Registry Guide](./docs/registry-guide.md)
-- [Concept](./docs/concept.md)
-- [Plan](./docs/plan.md)
-- [Changelog](./CHANGELOG.md)
-- [Contributing](./CONTRIBUTING.md)
-- [Security Policy](./SECURITY.md)
+- [Getting Started](https://github.com/travelhawk/agentpm/blob/main/docs/getting-started.md)
+- [Architecture](https://github.com/travelhawk/agentpm/blob/main/docs/architecture.md)
+- [Adapter Guide](https://github.com/travelhawk/agentpm/blob/main/docs/adapter-guide.md)
+- [Registry Guide](https://github.com/travelhawk/agentpm/blob/main/docs/registry-guide.md)
+- [Concept](https://github.com/travelhawk/agentpm/blob/main/docs/concept.md)
+- [Plan](https://github.com/travelhawk/agentpm/blob/main/docs/plan.md)
+- [Changelog](https://github.com/travelhawk/agentpm/blob/main/CHANGELOG.md)
+- [Contributing](https://github.com/travelhawk/agentpm/blob/main/CONTRIBUTING.md)
+- [Security Policy](https://github.com/travelhawk/agentpm/blob/main/SECURITY.md)
 
 ## License
 
-AgentPM is licensed under the MIT License. See [LICENSE](./LICENSE).
+AgentPM is licensed under the MIT License. See [LICENSE](https://github.com/travelhawk/agentpm/blob/main/LICENSE).

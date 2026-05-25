@@ -23,6 +23,7 @@ Summarizes the repo tooling, validation workflow, and documentation expectations
 - `pnpm typecheck`
 - `pnpm test`
 - `pnpm smoke`
+- `pnpm pack:cli`
 
 ## Dependencies
 
@@ -43,5 +44,6 @@ Summarizes the repo tooling, validation workflow, and documentation expectations
 - Package builds use local `tsconfig.build.json` files so declaration generation stays scoped to each workspace package.
 - Git-backed validation can take longer on Windows; keep explicit timeouts on slower integration tests.
 - ESLint applies type-aware rules to TypeScript files and Node globals to CommonJS helper scripts, matching the GitHub Actions CI matrix.
+- GitHub Actions publishes only the `agentpm` CLI package through `.github/workflows/publish-npm.yml`, and actual publishes are restricted to releases or manual runs from `master`. The npm token must be configured as the `NPM_TOKEN` repository secret, and internal `@agentpm/*` packages remain private while the CLI bundle carries their runtime code.
 - Repo-local governance is split between `AGENTS.md` for implementation and release-law rules, `CHANGELOG.md` for release-facing history, `CONTRIBUTING.md` for contributor workflow, `SECURITY.md` for private reporting, and the PR template for validation and release-bookkeeping reminders.
 - `AGENTS.md` now carries an explicit GodMode operating contract: governance preflight, `Goal/Context/Constraints/Done when`, a single-writer model, role triggers for `api_guardian`, `builder`, `validator`, and `tester`, and release-impact reporting before final handoff.

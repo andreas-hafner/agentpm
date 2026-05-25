@@ -3,13 +3,22 @@
 ## Requirements
 
 - Node.js 24 LTS or newer
-- pnpm 10
 - Git
 
 ## Install
 
+Install the published CLI globally:
+
+```bash
+npm install -g agentpm
+agentpm --help
+```
+
+For local AgentPM development, use pnpm 10 from the repository root:
+
 ```bash
 pnpm install
+pnpm build
 ```
 
 No native dependencies are required. SQLite is provided by Node.js built-in `node:sqlite`.
@@ -27,6 +36,16 @@ pnpm smoke
 `pnpm smoke` builds the CLI and runs a temporary end-to-end project flow with an isolated `AGENTPM_HOME`.
 
 ## Try the CLI
+
+With the published package installed:
+
+```bash
+agentpm source add examples/repos/codex-sample
+agentpm inspect examples/repos/codex-sample
+agentpm resolve
+```
+
+From a development checkout without a global install:
 
 ```bash
 node apps/cli/dist/index.js source add examples/repos/codex-sample

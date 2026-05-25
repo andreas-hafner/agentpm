@@ -1,28 +1,62 @@
 {
   "name": "agentpm",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "license": "MIT",
-  "description": "Project-aware AI skill orchestration CLI",
+  "description": "Git-native CLI for discovering, installing, syncing, and publishing AI agent skills.",
   "type": "module",
+  "homepage": "https://github.com/travelhawk/agentpm#readme",
+  "bugs": {
+    "url": "https://github.com/travelhawk/agentpm/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/travelhawk/agentpm.git",
+    "directory": "apps/cli"
+  },
+  "keywords": [
+    "agentpm",
+    "agents",
+    "ai",
+    "cli",
+    "codex",
+    "skills",
+    "skill-management",
+    "developer-tools"
+  ],
   "engines": {
     "node": ">=24"
   },
   "bin": {
-    "agentpm": "./bin/agentpm.js"
+    "agentpm": "bin/agentpm.js"
   },
   "files": [
     "bin",
     "dist",
+    "LICENSE",
+    "README.md",
     "package.json"
   ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --target node24 --clean",
+    "build": "tsup",
+    "postbuild": "node ../../scripts/preserve-node-sqlite.mjs dist/index.js dist/*.js",
     "dev": "tsx --tsconfig ../../tsconfig.json src/index.ts",
+    "prepack": "node ../../scripts/prepare-cli-package.mjs",
+    "postpack": "node ../../scripts/clean-cli-package.mjs",
     "prepublishOnly": "pnpm build"
   },
   "dependencies": {
+    "commander": "^14.0.0",
+    "ink": "^6.0.1",
+    "js-yaml": "^4.1.0",
+    "react": "^19.1.0",
+    "simple-git": "^3.28.0"
+  },
+  "devDependencies": {
     "@agentpm/core": "workspace:*",
-    "@agentpm/ui": "workspace:*",
-    "commander": "^14.0.0"
+    "@agentpm/ui": "workspace:*"
   }
 }
