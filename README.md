@@ -5,16 +5,19 @@
   <a href="https://www.npmjs.com/package/agentpm"><img src="https://img.shields.io/npm/dm/agentpm?color=2563eb" alt="npm downloads" /></a>
   <a href="https://github.com/travelhawk/agentpm/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
-  <a href="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml/badge.svg" alt="npm publish" /></a>
 </p>
 
-<p align="center">
+<br>
+
+<p margin-top: "50px" align="center">
   <strong>Git-native skill management for AI coding agents.</strong><br />
   Discover, install, update, sync, and publish skills from Git repositories, local folders, private indexes, and the public skills.sh bridge.
 </p>
 
+<br>
+
 <p align="center">
-  <img src="https://raw.githubusercontent.com/travelhawk/agentpm/main/docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
+  <img src="./docs/assets/agentpm-demo.gif" alt="AgentPM add and push demo" width="900" />
 </p>
 
 ## Install
