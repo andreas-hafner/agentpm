@@ -469,7 +469,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.6.0')
+  .version('0.6.1')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock())
