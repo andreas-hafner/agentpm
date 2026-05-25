@@ -34,14 +34,16 @@ pnpm build
 pnpm run link:global
 ```
 
-AgentPM works in two modes: local installs stay local by default, while a committed `agentpm.yaml` turns a repo into a shared contract for reproducible skill sync. Generated skill folders, caches, symlinks, and credentials stay local.
+AgentPM works in two modes:
+1) <strong>Skill Package Manager</strong> with update function for local installs
+2) A committed <strong>`agentpm.yaml`</strong> turns a repo into a shared contract for reproducible skill sync where generated skill folders, caches and credentials stay local.
 
 ## Features
 
 - 🚀 **One global CLI**: install with `npm install -g @travelhawk/agentpm`, then run `agentpm` from any repo.
 - 🧭 **Project contracts**: commit `agentpm.yaml` with shorthand or detailed `skills` entries for reproducible team sync.
 - 🔒 **Private-first sources**: use public GitHub, private Git/SSH, local folders, static registries, and private HTTP registry indexes.
-- 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official no-key `npx skills` flow.
+- 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official `npx skills`.
 - 🧩 **Native runtime layouts**: target `codex`, `claude`, and `generic` directories without converting source repositories.
 - 📦 **Repository inspection**: detect `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`.
 - ♻️ **Fresh indexes**: rebuild local source indexes on `source add`, `agentpm refresh`, or `agentpm update --refresh`.
@@ -79,6 +81,8 @@ This creates a live symlink to the local CLI. Rebuild after source changes with 
 
 Create and commit `agentpm.yaml` when you want a repository-level skill contract:
 
+A `agentpm.yaml` file looks like this:
+
 ```yaml
 sources:
   - id: internal
@@ -98,14 +102,6 @@ skills:
     scope: project
     items:
       - audio-mastering
-
-  - name: shared-review
-    source: registry
-    target: generic
-    scope: workspace
-    workspaceRoot: ..
-    items:
-      - review/checklists
 ```
 
 String entries are shorthand. Object entries bind a project skill to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. `target` selects a matching native layout; it does not transform one agent format into another. Accepted MVP targets are `codex`, `claude`, and `generic`.
@@ -125,29 +121,10 @@ skills:
 
 Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
-`skills.sh` is available as a no-key public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
+`skills.sh` is available as a public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
-## Development install
-
-The npm package is the recommended installation path for normal use. These repository-local commands are for AgentPM development only.
-
-**Live development symlink**:
-
-```bash
-pnpm run link:global
-```
-
-_This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`._
-
-**Static local copy**:
-
-```bash
-pnpm run install:global
-```
-
-_This installs a static copy of the CLI globally. You will need to run this command again to apply future updates._
 
 ## Smoke test
 
@@ -194,7 +171,6 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 - If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
 - Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
 - The target repository can be empty. AgentPM reuses a cached checkout for repeat pushes, copies the selected entries into place, commits, and pushes `HEAD`.
-- Raw Git clone, commit, and push output stays hidden behind concise AgentPM status messages.
 
 ## Docs
 
