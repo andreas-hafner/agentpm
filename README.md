@@ -43,7 +43,7 @@ AgentPM works in two modes:
 - 🚀 **One global CLI**: install with `npm install -g @travelhawk/agentpm`, then run `agentpm` from any repo.
 - 🧭 **Project contracts**: commit `agentpm.yaml` with shorthand or detailed `skills` entries for reproducible team sync.
 - 🔒 **Private-first sources**: use public GitHub, private Git/SSH, local folders, static registries, and private HTTP registry indexes.
-- 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official no-key `npx skills` flow.
+- 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official `npx skills`.
 - 🧩 **Native runtime layouts**: target `codex`, `claude`, and `generic` directories without converting source repositories.
 - 📦 **Repository inspection**: detect `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`.
 - ♻️ **Fresh indexes**: rebuild local source indexes on `source add`, `agentpm refresh`, or `agentpm update --refresh`.
@@ -125,25 +125,6 @@ Private Git sources use your existing SSH key or Git credential helper. Private 
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
 
-## Development install
-
-The npm package is the recommended installation path for normal use. These repository-local commands are for AgentPM development only.
-
-**Live development symlink**:
-
-```bash
-pnpm run link:global
-```
-
-_This creates a global symlink. Any code changes will be instantly available in the global command after running `pnpm build`._
-
-**Static local copy**:
-
-```bash
-pnpm run install:global
-```
-
-_This installs a static copy of the CLI globally. You will need to run this command again to apply future updates._
 
 ## Smoke test
 
