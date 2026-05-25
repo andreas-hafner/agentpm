@@ -17,8 +17,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "format": "prettier --write .",
-    "pack:cli": "pnpm --filter agentpm build && pnpm --filter agentpm pack --pack-destination .tmp/npm-pack",
-    "publish:cli": "pnpm --filter agentpm publish --access public --no-git-checks"
+    "pack:cli": "pnpm --filter @travelhawk/agentpm build && pnpm --filter @travelhawk/agentpm pack --pack-destination .tmp/npm-pack",
+    "publish:cli": "pnpm --filter @travelhawk/agentpm publish --access public --no-git-checks"
   },
   "devDependencies": {
     "@eslint/js": "^9.28.0",
