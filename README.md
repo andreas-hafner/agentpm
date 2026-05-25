@@ -2,7 +2,6 @@
 
 <p align="center">
   <a href="https://www.npmjs.com/package/@travelhawk/agentpm"><img src="https://img.shields.io/npm/v/@travelhawk/agentpm?color=cb3837&label=npm" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/@travelhawk/agentpm"><img src="https://img.shields.io/npm/dm/@travelhawk/agentpm?color=2563eb" alt="npm downloads" /></a>
   <a href="https://github.com/travelhawk/agentpm/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
 </p>
