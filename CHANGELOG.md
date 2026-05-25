@@ -8,6 +8,18 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.6.1] - 2026-05-25
+
+### Added
+
+- Added a GitHub Actions npm publish workflow for the public `agentpm` CLI package, restricted to `master` and using the `NPM_TOKEN` repository secret with npm provenance.
+- Added npm-ready CLI package metadata, README and license packaging, npm-focused install instructions, and README badges for npm, license, CI, and publish status.
+
+### Changed
+
+- Internal `@agentpm/*` workspace packages are now marked private while the CLI package bundles runtime internals for global npm installs.
+- Repository-local global install commands are now documented as development-only workflows.
+
 ## [0.6.0] - 2026-05-21
 
 ### Changed
