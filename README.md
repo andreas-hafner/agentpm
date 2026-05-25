@@ -1,8 +1,8 @@
 <h1 align="center">AgentPM</h1>
 
 <p align="center">
-  <a href="https://www.npmjs.com/package/agentpm"><img src="https://img.shields.io/npm/v/agentpm?color=cb3837&label=npm" alt="npm version" /></a>
-  <a href="https://www.npmjs.com/package/agentpm"><img src="https://img.shields.io/npm/dm/agentpm?color=2563eb" alt="npm downloads" /></a>
+  <a href="https://www.npmjs.com/package/@travelhawk/agentpm"><img src="https://img.shields.io/npm/v/@travelhawk/agentpm?color=cb3837&label=npm" alt="npm version" /></a>
+  <a href="https://www.npmjs.com/package/@travelhawk/agentpm"><img src="https://img.shields.io/npm/dm/@travelhawk/agentpm?color=2563eb" alt="npm downloads" /></a>
   <a href="https://github.com/travelhawk/agentpm/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-0f766e.svg" alt="MIT License" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
   <a href="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml"><img src="https://github.com/travelhawk/agentpm/actions/workflows/publish-npm.yml/badge.svg" alt="npm publish" /></a>
@@ -20,7 +20,7 @@
 ## Install
 
 ```bash
-npm install -g agentpm
+npm install -g @travelhawk/agentpm
 agentpm --help
 ```
 
@@ -40,7 +40,7 @@ AgentPM works in two modes:
 
 ## Features
 
-- 🚀 **One global CLI**: install with `npm install -g agentpm`, then run `agentpm` from any repo.
+- 🚀 **One global CLI**: install with `npm install -g @travelhawk/agentpm`, then run `agentpm` from any repo.
 - 🧭 **Project contracts**: commit `agentpm.yaml` with shorthand or detailed `skills` entries for reproducible team sync.
 - 🔒 **Private-first sources**: use public GitHub, private Git/SSH, local folders, static registries, and private HTTP registry indexes.
 - 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official no-key `npx skills` flow.
@@ -56,7 +56,7 @@ AgentPM works in two modes:
 Install the published CLI:
 
 ```bash
-npm install -g agentpm
+npm install -g @travelhawk/agentpm
 agentpm --help
 ```
 
@@ -65,7 +65,7 @@ Use the repository checkout only when developing AgentPM itself:
 ```bash
 pnpm install
 pnpm build
-pnpm --filter agentpm exec agentpm --help
+pnpm --filter @travelhawk/agentpm exec agentpm --help
 ```
 
 If you want the development checkout on your global `PATH`, run:

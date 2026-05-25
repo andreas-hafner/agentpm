@@ -10,7 +10,7 @@
 Install the published CLI globally:
 
 ```bash
-npm install -g agentpm
+npm install -g @travelhawk/agentpm
 agentpm --help
 ```
 
