@@ -30,7 +30,7 @@ pnpm smoke
 Normal users should install the published CLI with:
 
 ```bash
-npm install -g agentpm
+npm install -g @travelhawk/agentpm
 ```
 
 Repository-local global commands such as `pnpm run link:global` and `pnpm run install:global` are development workflows only.
@@ -55,7 +55,7 @@ AgentPM uses a checked-in [CHANGELOG.md](./CHANGELOG.md) plus aligned workspace 
 
 ## npm Publishing
 
-Only the `agentpm` CLI package is public. The root workspace and all `@agentpm/*` implementation packages stay private; the CLI bundle includes the internal implementation needed at runtime.
+Only the `@travelhawk/agentpm` CLI package is public. The root workspace and all `@agentpm/*` implementation packages stay private; the CLI bundle includes the internal implementation needed at runtime.
 
 Publishing runs through [`.github/workflows/publish-npm.yml`](./.github/workflows/publish-npm.yml) on a published GitHub Release targeting `master` or manual `workflow_dispatch` from `master`. Configure the npm automation token as a repository secret named `NPM_TOKEN`; never commit npm tokens or `.npmrc` credentials. The workflow validates, builds, prepares the npm README and license, inspects the package tarball, and publishes with npm provenance.
 

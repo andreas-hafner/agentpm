@@ -12,8 +12,8 @@ This repo uses a simple release workflow:
 
 ### Added
 
-- Added a GitHub Actions npm publish workflow for the public `agentpm` CLI package, restricted to `master` and using the `NPM_TOKEN` repository secret with npm provenance.
-- Added npm-ready CLI package metadata, README and license packaging, npm-focused install instructions, and README badges for npm, license, CI, and publish status.
+- Added a GitHub Actions npm publish workflow for the public `@travelhawk/agentpm` CLI package, restricted to `master` and using the `NPM_TOKEN` repository secret with npm provenance.
+- Added npm-ready scoped CLI package metadata, README and license packaging, npm-focused install instructions, and README badges for npm, license, CI, and publish status.
 
 ### Changed
 
