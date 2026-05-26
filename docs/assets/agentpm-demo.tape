@@ -33,7 +33,7 @@ Sleep 3500ms
 Enter
 Enter
 
-Type "agentpm target add vault https://github.com/travelhawk/test-skills-vault.git --global"
+Type "agentpm target add vault https://github.com/travelhawk/test-skills-vault.git"
 Enter
 Sleep 2200ms
 

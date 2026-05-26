@@ -8,6 +8,20 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.7.0] - 2026-05-26
+
+### Changed
+
+- Push targets are now global-only. `agentpm target add`, `target default`, `target remove`, and `push` resolve targets from global AgentPM config instead of project `agentpm.yaml` targets.
+- Direct `agentpm install --from ...` and `agentpm skills install <repo-or-url>` flows can now continue as one-off installs without permanently adding the repository as an AgentPM source; when `agentpm.yaml` exists, the resolved source is still persisted there for later `sync`.
+- `agentpm skills install` now accepts plain queries such as `agentpm skills install typescript` and opens an interactive picker, while search output highlights the exact installable selector more clearly.
+- Source add, install, provider install, and push flows now show cleaner AgentPM-owned status updates instead of leaking raw internal progress.
+- The packaged CLI bootstrap no longer uses top-level await, so Ctrl+C during startup no longer shows Node's unsettled top-level await warning.
+
+### Fixed
+
+- Push documentation and help now consistently describe native-layout preservation, so `.codex`, `.agents`, and `.claude` paths remain in their original format when published.
+
 ## [0.6.1] - 2026-05-25
 
 ### Added

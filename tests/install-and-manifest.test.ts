@@ -428,6 +428,45 @@ describe('install and manifest flows', () => {
     }
   });
 
+  test('installs selected skills from --from without permanently adding the source when declined', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const sourceDir = await makeTempDir('agentpm-source-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await copyDir(path.resolve('tests/fixtures/repos/generic'), sourceDir);
+    await fs.writeFile(path.join(projectDir, 'agentpm.yaml'), 'version: 1\nskills: []\n', 'utf8');
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+      prompts: {
+        confirm: () => Promise.resolve(false),
+        selectMany: (_message, options) =>
+          Promise.resolve(
+            options
+              .filter((option) => option.label === 'skill-b')
+              .map((option) => option.value),
+          ),
+      },
+    });
+    try {
+      const installs = await service.install([], {
+        from: sourceDir,
+        scope: 'project',
+      });
+      expect(installs).toHaveLength(1);
+      expect(service.listSources()).toHaveLength(0);
+
+      const { loadProjectConfig } = await import('@agentpm/config');
+      const config = await loadProjectConfig(projectDir);
+      expect(config?.manifest.sources.map((source) => source.locator)).toEqual([
+        path.resolve(sourceDir),
+      ]);
+      expect(config?.manifest.installs[0]?.name).toBe('skill-b');
+    } finally {
+      service.close();
+    }
+  });
+
   test('sync reads agentpm.yaml, resolves sources in order, and excludes generated targets locally', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const sourceDir = await makeTempDir('agentpm-source-');
@@ -719,7 +758,7 @@ describe('install and manifest flows', () => {
     });
     try {
       // 1. Add target globally
-      await service.addTarget('global-git-target', 'https://github.com/my-org/my-target-repo.git', true);
+      await service.addTarget('global-git-target', 'https://github.com/my-org/my-target-repo.git');
 
       // 2. Load global config and assert target is saved globally
       const { loadGlobalConfig } = await import('@agentpm/config');
@@ -735,7 +774,7 @@ describe('install and manifest flows', () => {
       expect(result.targetLocator).toBe('https://github.com/my-org/my-target-repo.git');
 
       // 4. Remove target globally
-      await service.removeTarget('global-git-target', true);
+      await service.removeTarget('global-git-target');
       const nextGlobalConfig = await loadGlobalConfig(projectDir, { AGENTPM_HOME: homeDir });
       expect(nextGlobalConfig.targets).toHaveLength(0);
     } finally {
@@ -776,12 +815,12 @@ describe('install and manifest flows', () => {
       const result = await service.push({ dryRun: true });
       expect(result.targetLocator).toBe('https://github.com/my-org/secondary.git');
 
-      const { loadProjectConfig } = await import('@agentpm/config');
-      const config = await loadProjectConfig(projectDir);
-      expect(config?.manifest.targets.find((target) => target.id === 'secondary')?.default).toBe(
+      const { loadGlobalConfig } = await import('@agentpm/config');
+      const config = await loadGlobalConfig(projectDir, { AGENTPM_HOME: homeDir });
+      expect(config.targets?.find((target) => target.id === 'secondary')?.default).toBe(
         true,
       );
-      expect(config?.manifest.targets.find((target) => target.id === 'primary')?.default).toBe(
+      expect(config.targets?.find((target) => target.id === 'primary')?.default).toBe(
         false,
       );
     } finally {
@@ -836,7 +875,6 @@ describe('install and manifest flows', () => {
       await service.addTarget(
         'primary',
         'https://github.com/my-org/primary.git',
-        false,
         true,
       );
       await service.addTarget(
@@ -845,12 +883,46 @@ describe('install and manifest flows', () => {
       );
       await service.setDefaultTarget('secondary');
 
-      const { loadProjectConfig } = await import('@agentpm/config');
-      const config = await loadProjectConfig(projectDir);
-      expect(config?.manifest.targets.map((target) => [target.id, target.default])).toEqual([
+      const { loadGlobalConfig } = await import('@agentpm/config');
+      const config = await loadGlobalConfig(projectDir, { AGENTPM_HOME: homeDir });
+      expect(config.targets?.map((target) => [target.id, target.default])).toEqual([
         ['primary', false],
         ['secondary', true],
       ]);
+    } finally {
+      service.close();
+    }
+  });
+
+  test('push ignores legacy project targets and uses global targets only', async () => {
+    const homeDir = await makeTempDir('agentpm-home-');
+    const projectDir = await makeTempDir('agentpm-project-');
+    await writeFile(
+      path.join(projectDir, 'agentpm.yaml'),
+      [
+        'version: 1',
+        'targets:',
+        '  - id: legacy-project',
+        '    locator: https://github.com/my-org/legacy.git',
+        '    kind: git',
+        '    default: true',
+        'skills: []',
+        '',
+      ].join('\n'),
+    );
+    await writeFile(
+      path.join(projectDir, '.agents', 'skills', 'local-skill', 'SKILL.md'),
+      '# local skill\n',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.addTarget('global-target', 'https://github.com/my-org/global.git');
+      const result = await service.push({ dryRun: true });
+      expect(result.targetLocator).toBe('https://github.com/my-org/global.git');
     } finally {
       service.close();
     }

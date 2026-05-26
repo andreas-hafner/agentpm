@@ -30,6 +30,17 @@ export interface ProviderSkillInstallRequest {
   selector: string | null;
 }
 
+export type ProviderInstallInput =
+  | {
+      kind: 'request';
+      request: ProviderSkillInstallRequest;
+    }
+  | {
+      kind: 'query';
+      provider: ProviderId;
+      query: string;
+    };
+
 export function formatProviderSkillSelector(
   source: string,
   skill: string,
@@ -90,6 +101,20 @@ function normalizeProviderSource(source: string): {
     source: normalized,
     installLocator: normalized,
   };
+}
+
+function isProviderSelectorCandidate(value: string): boolean {
+  return /^([^/\s]+\/[^@\s]+)@([^\s]+)$/.test(value.trim());
+}
+
+function isProviderSourceCandidate(value: string): boolean {
+  const normalized = value.trim();
+  return (
+    normalized.startsWith('github:') ||
+    normalized.includes('://') ||
+    normalized.startsWith('git@') ||
+    /^[^/\s]+\/[^/\s]+$/.test(normalized)
+  );
 }
 
 function parseProviderSelector(selector: string): {
@@ -250,5 +275,44 @@ export function resolveProviderInstallRequest(
     installLocator: parsed.installLocator,
     skills: [parsed.skill],
     selector: `${parsed.source}@${parsed.skill}`,
+  };
+}
+
+export function resolveProviderInstallInput(
+  sourceOrSelector: string,
+  skills: string[] = [],
+  provider = 'skills.sh',
+): ProviderInstallInput {
+  const resolvedProvider = normalizeProviderId(provider);
+  const normalized = sourceOrSelector.trim();
+  if (!normalized) {
+    throw new AgentPmError('A provider install target or query is required.');
+  }
+
+  if (skills.length > 0 || isProviderSelectorCandidate(normalized)) {
+    return {
+      kind: 'request',
+      request: resolveProviderInstallRequest(normalized, skills, provider),
+    };
+  }
+
+  if (isProviderSourceCandidate(normalized)) {
+    const source = normalizeProviderSource(normalized);
+    return {
+      kind: 'request',
+      request: {
+        provider: resolvedProvider,
+        source: source.source,
+        installLocator: source.installLocator,
+        skills: [],
+        selector: null,
+      },
+    };
+  }
+
+  return {
+    kind: 'query',
+    provider: resolvedProvider,
+    query: normalized,
   };
 }

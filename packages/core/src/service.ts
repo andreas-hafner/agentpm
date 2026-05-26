@@ -83,6 +83,7 @@ import {
 } from '@agentpm/shared';
 import {
   formatProviderSkillSelector,
+  resolveProviderInstallInput,
   resolveProviderInstallRequest,
   searchProviderSkills,
   type ProviderSkillSearchResult,
@@ -142,6 +143,12 @@ interface PreparedContent {
   repoRoot: string;
   cacheKey: string | null;
   cleanup?: (() => Promise<void>) | undefined;
+}
+
+interface ResolvedInstallSource {
+  source: SourceRecord;
+  entries: CatalogEntryRecord[];
+  persisted: boolean;
 }
 
 interface ConfiguredSourceBinding {
@@ -287,6 +294,7 @@ export class AgentPmService {
     await this.initialize();
     const kind = await this.classifySource(locator);
     const normalizedLocator = this.normalizeLocator(locator, kind);
+    this.reportStatus(`Resolving source ${displayNameFromLocator(normalizedLocator)}...`);
     const sourceId = makeId('src', kind, normalizedLocator);
     const source: SourceRecord = {
       id: sourceId,
@@ -304,7 +312,9 @@ export class AgentPmService {
   }
 
   listSources(): SourceRecord[] {
-    return this.db.listSources();
+    return this.db
+      .listSources()
+      .filter((source) => source.metadata.transient !== true);
   }
 
   async listSourceEntries(
@@ -315,7 +325,7 @@ export class AgentPmService {
 
     let source = sourceToken ? this.findSourceByToken(sourceToken) : null;
     if (!source && !sourceToken) {
-      const sources = this.db.listSources();
+      const sources = this.listSources();
       if (sources.length === 0) {
         throw new AgentPmError(
           'No sources have been added yet. Use "agentpm source add <locator>" first.',
@@ -440,7 +450,7 @@ export class AgentPmService {
             }
             return source;
           })
-        : this.db.listSources();
+        : this.listSources();
 
     const results: RefreshSourceResult[] = [];
     for (const source of sources) {
@@ -553,15 +563,49 @@ export class AgentPmService {
     sourceOrSelector: string,
     options: ProviderSkillInstallOptions = {},
   ): Promise<InstallRecord[]> {
+    const resolved = resolveProviderInstallInput(
+      sourceOrSelector,
+      options.skills ?? [],
+      options.provider,
+    );
+    if (resolved.kind === 'query') {
+      this.reportStatus(`Searching public skills for "${resolved.query}"...`);
+      const results = await searchProviderSkills(
+        resolved.query,
+        this.env,
+        resolved.provider,
+      );
+      if (results.length === 0) {
+        throw new AgentPmError(`No public skills found for "${resolved.query}".`);
+      }
+      if (!this.prompts.selectOne) {
+        throw new AgentPmError(
+          `Query installs require an interactive TTY. Re-run interactively or install with a concrete selector like "${results[0]!.skillSelector}".`,
+        );
+      }
+      const selected = await this.prompts.selectOne(
+        `Choose a public skill to install for "${resolved.query}":`,
+        results.map((result) => ({
+          label: result.skillSelector,
+          description: result.url ?? result.installLocator,
+          value: result,
+        })),
+      );
+      sourceOrSelector = selected.skillSelector;
+    }
+
     const request = resolveProviderInstallRequest(
       sourceOrSelector,
       options.skills ?? [],
       options.provider,
     );
+    this.reportStatus(
+      `Installing ${request.selector ?? request.source} from ${request.installLocator}...`,
+    );
     const installs = await this.install([], {
       ...options,
       from: request.installLocator,
-      addSource: true,
+      addSource: options.addSource,
       skills: request.skills,
     });
     const taggedInstalls = installs.map((install) =>
@@ -631,6 +675,7 @@ export class AgentPmService {
     const installs: InstallRecord[] = [];
 
     for (const selection of selections) {
+      this.reportStatus(`Installing selected skill ${selection.entry.name}...`);
       const prepared = await this.prepareContentForEntry(
         selection.entry,
         selection.source,
@@ -747,7 +792,10 @@ export class AgentPmService {
           cacheKey: prepared.cacheKey,
           installedRevision,
           layoutSignature: prepared.report.layoutSignature,
-          metadata: {},
+          metadata: {
+            sourceLocator: selection.source.locator,
+            sourceKind: selection.source.kind,
+          },
           createdAt: nowIso(),
           updatedAt: nowIso(),
         });
@@ -761,6 +809,7 @@ export class AgentPmService {
     }
 
     if (installs.length > 0 && options.updateProjectConfig !== false) {
+      this.reportStatus('Updating manifest and local install metadata...');
       await this.updateExistingProjectConfig(installs);
     }
 
@@ -1101,16 +1150,26 @@ export class AgentPmService {
               orderedSources,
               installSpec.target ?? installSpec.adapter,
             );
-      const created = await this.install([sourceToken], {
-        scope: installSpec.scope,
-        workspaceRoot: installSpec.workspaceRoot,
-        skills: installSpec.items,
-        ref: installSpec.ref ?? null,
-        revision: installSpec.revision ?? null,
-        target: installSpec.target ?? installSpec.adapter,
-        yes: true,
-        updateProjectConfig: false,
-      });
+      const sourceBinding =
+        orderedSources.find(
+          (binding) =>
+            binding.source.id === sourceToken ||
+            this.matchesConfiguredSourceToken(binding, sourceToken),
+        ) ?? null;
+      const created = await this.install(
+        sourceBinding ? [] : [sourceToken],
+        {
+          from: sourceBinding?.source.locator,
+          scope: installSpec.scope,
+          workspaceRoot: installSpec.workspaceRoot,
+          skills: installSpec.items,
+          ref: installSpec.ref ?? null,
+          revision: installSpec.revision ?? null,
+          target: installSpec.target ?? installSpec.adapter,
+          yes: true,
+          updateProjectConfig: false,
+        },
+      );
       installs.push(...created);
     }
 
@@ -1120,55 +1179,34 @@ export class AgentPmService {
   async addTarget(
     id: string,
     locator: string,
-    global = false,
     defaultTarget = false,
   ): Promise<void> {
     await this.initialize();
     const sourceKind = await this.classifySource(locator);
     const pushKind = sourceKind === 'local' ? ('git' as const) : sourceKind;
-    if (global) {
-      const { addTargetToGlobalConfig } = await import('@agentpm/config');
-      await addTargetToGlobalConfig(
-        this.cwd,
-        {
-          id,
-          locator,
-          kind: pushKind,
-          default: defaultTarget,
-        },
-        this.env,
-      );
-    } else {
-      const { addTargetToProjectConfig } = await import('@agentpm/config');
-      await addTargetToProjectConfig(this.cwd, {
+    const { addTargetToGlobalConfig } = await import('@agentpm/config');
+    await addTargetToGlobalConfig(
+      this.cwd,
+      {
         id,
         locator,
         kind: pushKind,
         default: defaultTarget,
-      });
-    }
+      },
+      this.env,
+    );
   }
 
-  async setDefaultTarget(id: string, global = false): Promise<void> {
+  async setDefaultTarget(id: string): Promise<void> {
     await this.initialize();
-    if (global) {
-      const { setDefaultGlobalTarget } = await import('@agentpm/config');
-      await setDefaultGlobalTarget(this.cwd, id, this.env);
-    } else {
-      const { setDefaultProjectTarget } = await import('@agentpm/config');
-      await setDefaultProjectTarget(this.cwd, id);
-    }
+    const { setDefaultGlobalTarget } = await import('@agentpm/config');
+    await setDefaultGlobalTarget(this.cwd, id, this.env);
   }
 
-  async removeTarget(id: string, global = false): Promise<void> {
+  async removeTarget(id: string): Promise<void> {
     await this.initialize();
-    if (global) {
-      const { removeTargetFromGlobalConfig } = await import('@agentpm/config');
-      await removeTargetFromGlobalConfig(this.cwd, id, this.env);
-    } else {
-      const { removeTargetFromProjectConfig } = await import('@agentpm/config');
-      await removeTargetFromProjectConfig(this.cwd, id);
-    }
+    const { removeTargetFromGlobalConfig } = await import('@agentpm/config');
+    await removeTargetFromGlobalConfig(this.cwd, id, this.env);
   }
 
   async push(options: PushOptions = {}): Promise<PushResult> {
@@ -1208,11 +1246,8 @@ export class AgentPmService {
   ): Promise<ManifestPushTargetSpec> {
     const { loadGlobalConfig } = await import('@agentpm/config');
     const globalConfig = await loadGlobalConfig(this.cwd, this.env);
-
-    const useProjectTargets = (config?.manifest.targets ?? []).length > 0;
-    const targets = useProjectTargets
-      ? (config?.manifest.targets ?? [])
-      : (globalConfig.targets ?? []);
+    const legacyProjectTargets = config?.manifest.targets ?? [];
+    const targets = globalConfig.targets ?? [];
 
     if (token) {
       const match = targets.find((t) => t.id === token || t.locator === token);
@@ -1246,14 +1281,10 @@ export class AgentPmService {
       if (selected.id && this.prompts.confirm) {
         const shouldSaveDefault = await this.prompts.confirm(
           `Save "${selected.id}" as the default push target?`,
-          [
-            useProjectTargets
-              ? 'The default will be written to agentpm.yaml.'
-              : 'The default will be written to global AgentPM config.',
-          ],
+          ['The default will be written to global AgentPM config.'],
         );
         if (shouldSaveDefault) {
-          await this.setDefaultTarget(selected.id, !useProjectTargets);
+          await this.setDefaultTarget(selected.id);
         }
       }
       return selected;
@@ -1269,7 +1300,11 @@ export class AgentPmService {
             .join('\n')
         : '  - none configured';
     throw new AgentPmError(
-      `No push target specified and no default target configured in agentpm.yaml or global config.\n\nAvailable targets:\n${available}\n\nUse --to <target>, or set one with: agentpm target default <id>${useProjectTargets ? '' : ' --global'}`,
+      `No push target specified and no default target configured in global config.` +
+        (legacyProjectTargets.length > 0
+          ? '\n\nLegacy project targets were found in agentpm.yaml but are no longer used for push target resolution.'
+          : '') +
+        `\n\nAvailable targets:\n${available}\n\nUse --to <target>, or set one with: agentpm target default <id>`,
     );
   }
 
@@ -1310,13 +1345,34 @@ export class AgentPmService {
     }
 
     const sources = localInstalls
-      .map((install) => this.db.getSource(install.sourceId))
-      .filter((source): source is SourceRecord => Boolean(source))
-      .map((source) => ({
-        id: source.id,
-        locator: source.locator,
-        kind: source.kind,
-      } satisfies ManifestSourceSpec));
+      .map((install) => {
+        const source = this.db.getSource(install.sourceId);
+        if (source) {
+          return {
+            id: source.id,
+            locator: source.locator,
+            kind: source.kind,
+          } satisfies ManifestSourceSpec;
+        }
+
+        const sourceLocator =
+          typeof install.metadata.sourceLocator === 'string'
+            ? install.metadata.sourceLocator
+            : install.contentLocator;
+        const sourceKind =
+          typeof install.metadata.sourceKind === 'string'
+            ? (install.metadata.sourceKind as SourceKind)
+            : classifyLocator(sourceLocator) === 'registry'
+              ? 'registry'
+              : install.contentKind === 'local'
+                ? 'local'
+                : 'git';
+        return {
+          id: install.sourceId,
+          locator: sourceLocator,
+          kind: sourceKind,
+        } satisfies ManifestSourceSpec;
+      });
 
     const uniqueSources = [
       ...new Map(sources.map((source) => [source.id ?? source.locator, source])).values(),
@@ -2070,6 +2126,7 @@ export class AgentPmService {
   }
 
   private async reindexSource(source: SourceRecord): Promise<AddSourceResult> {
+    this.reportStatus(`Indexing skills from ${source.displayName}...`);
     if (source.kind === 'registry') {
       const registry = await loadRegistryIndex(source.locator);
       const entries = this.catalogEntriesFromRegistry(source, registry.entries);
@@ -2627,31 +2684,79 @@ export class AgentPmService {
   private async resolveSourceForInstall(
     sourceToken: string,
     addSource = false,
-  ): Promise<SourceRecord> {
+    skipConfirmation = false,
+  ): Promise<ResolvedInstallSource> {
     const existing = this.findSourceByToken(sourceToken);
     if (existing) {
-      return existing;
+      return {
+        source: existing,
+        entries: this.db.listCatalogEntriesBySource(existing.id),
+        persisted: existing.metadata.transient !== true,
+      };
     }
 
     const kind = await this.classifySource(sourceToken);
     const normalizedLocator = this.normalizeLocator(sourceToken, kind);
     if (addSource) {
-      return (await this.addSource(normalizedLocator)).source;
+      const added = await this.addSource(normalizedLocator);
+      return {
+        source: added.source,
+        entries: this.db.listCatalogEntriesBySource(added.source.id),
+        persisted: true,
+      };
     }
 
-    if (this.prompts.confirm) {
+    this.reportStatus(
+      `Resolving one-off source ${displayNameFromLocator(normalizedLocator)}...`,
+    );
+    if (!skipConfirmation && this.prompts.confirm) {
       const shouldAdd = await this.prompts.confirm(
-        'Add this repo as an AgentPM source and continue?',
+        'Add this repo as a permanent AgentPM source?',
         [normalizedLocator],
       );
       if (shouldAdd) {
-        return (await this.addSource(normalizedLocator)).source;
+        const added = await this.addSource(normalizedLocator);
+        return {
+          source: added.source,
+          entries: this.db.listCatalogEntriesBySource(added.source.id),
+          persisted: true,
+        };
       }
     }
 
-    throw new AgentPmError(
-      `Source ${displayNameFromLocator(normalizedLocator)} is not configured. Re-run with --add-source or add it first using "agentpm source add ${normalizedLocator}".`,
-    );
+    const preview = await this.listSourceEntries(normalizedLocator);
+    const transientId = makeId('temp-src', kind, normalizedLocator);
+    const source: SourceRecord = {
+      id: transientId,
+      kind,
+      locator: normalizedLocator,
+      normalizedLocator,
+      displayName: displayNameFromLocator(normalizedLocator),
+      metadata: { transient: true },
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    };
+    const storedSource = this.db.upsertSource(source);
+    const entries = preview.entries.map((entry) => ({
+      id: makeId('temp-cat', transientId, entry.name, entry.repo, entry.path ?? ''),
+      sourceId: transientId,
+      name: entry.name,
+      description: entry.description,
+      repo: entry.repo,
+      ref: null,
+      path: entry.path,
+      adapterHint: entry.adapter,
+      tags: entry.adapter ? [entry.adapter] : [],
+      metadata: {},
+      createdAt: nowIso(),
+      updatedAt: nowIso(),
+    } satisfies CatalogEntryRecord));
+    this.db.replaceCatalogEntries(storedSource.id, entries);
+    return {
+      source: storedSource,
+      entries: this.db.listCatalogEntriesBySource(storedSource.id),
+      persisted: false,
+    };
   }
 
   private async prepareGitContent(
@@ -2702,6 +2807,11 @@ export class AgentPmService {
     const sparsePaths = requireFullCheckout
       ? []
       : normalizeSparsePaths(options.sparsePaths);
+    this.reportStatus(
+      existingCache
+        ? 'Refreshing cached repository checkout...'
+        : 'Cloning repository into local cache...',
+    );
     let release = await materializeGitRelease({
       locator,
       basePath: cacheBasePath,
@@ -2737,6 +2847,7 @@ export class AgentPmService {
 
         await fs.rm(cacheBasePath, { recursive: true, force: true });
         this.db.deleteCacheRepo(cacheKey);
+        this.reportStatus('Retrying with a full repository checkout...');
         release = await materializeGitRelease({
           locator,
           basePath: cacheBasePath,
@@ -2785,15 +2896,23 @@ export class AgentPmService {
     names: string[],
     options: InstallOptions,
   ): Promise<Array<{ source: SourceRecord; entry: CatalogEntryRecord }>> {
-    const forcedSource = options.from
-      ? await this.resolveSourceForInstall(options.from, options.addSource)
+    const forcedInstallSource = options.from
+      ? await this.resolveSourceForInstall(
+          options.from,
+          options.addSource,
+          Boolean(options.yes),
+        )
       : null;
+    const forcedSource = forcedInstallSource?.source ?? null;
     const requestedNames =
       options.skills && options.skills.length > 0 ? options.skills : names;
 
     if (forcedSource) {
-      const entries = this.db
-        .listCatalogEntriesBySource(forcedSource.id)
+      const entries = (
+        forcedInstallSource?.persisted
+          ? this.db.listCatalogEntriesBySource(forcedSource.id)
+          : forcedInstallSource?.entries ?? []
+      )
         .filter((entry) => matchesCatalogEntryTarget(entry, options.target));
 
       if (entries.length === 0) {
@@ -2856,7 +2975,7 @@ export class AgentPmService {
       );
     }
 
-    const sources = this.db.listSources();
+    const sources = this.listSources();
     if (sources.length === 0) {
       throw new AgentPmError(
         'No sources have been added yet. Use "agentpm source add" first.',

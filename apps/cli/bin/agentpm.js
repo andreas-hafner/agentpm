@@ -9,5 +9,9 @@ process.emitWarning = function (warning, type, ...rest) {
   }
   return orig.call(process, warning, type, ...rest);
 };
-await import('../dist/index.js');
+void import('../dist/index.js').catch((error) => {
+  process.nextTick(() => {
+    throw error;
+  });
+});
 

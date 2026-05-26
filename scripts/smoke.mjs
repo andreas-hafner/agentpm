@@ -168,30 +168,9 @@ try {
   const pushRemotePath = path.join(tempRoot, 'push-remote');
   execFileSync('git', ['init', '--bare', pushRemotePath], { stdio: 'ignore' });
 
-  // Add target to agentpm.yaml
-  writeFileSync(
-    path.join(projectDir, 'agentpm.yaml'),
-    [
-      'sources:',
-      '  - id: smoke-registry',
-      `    locator: ${JSON.stringify(`registry:${registryPath}`)}`,
-      'targets:',
-      '  - id: smoke-push',
-      `    locator: ${JSON.stringify(pushRemotePath)}`,
-      '    default: true',
-      'skills:',
-      '  - name: smoke-audio-package',
-      '    source: smoke-registry',
-      '    target: codex',
-      '    scope: project',
-      '    ref: main',
-      `    revision: ${revision}`,
-      '    items:',
-      '      - smoke-audio',
-      '',
-    ].join('\n'),
-    'utf8',
-  );
+  run(['target', 'add', 'smoke-push', pushRemotePath, '--default'], {
+    cwd: projectDir,
+  });
 
   const push = run(['push', '-m', 'smoke test push'], { cwd: projectDir });
   assertIncludes(push, 'Pushed to', 'push output');

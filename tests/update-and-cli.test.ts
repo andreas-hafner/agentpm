@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest';
 import {
   AgentPmService,
   parseSkillsProviderSearchOutput,
+  resolveProviderInstallInput,
   resolveProviderInstallRequest,
 } from '@agentpm/core';
 
@@ -165,6 +166,29 @@ describe('update and cli flows', () => {
         selector: null,
       }),
     );
+  });
+
+  test('treats plain skills install text as either a repo/source request or a search query', () => {
+    const selectorInput = resolveProviderInstallInput('wshobson/agents@typescript-advanced-types');
+    if (selectorInput.kind !== 'request') {
+      throw new Error('Expected a provider install request.');
+    }
+    expect(selectorInput.request.installLocator).toBe('github:wshobson/agents');
+    expect(selectorInput.request.skills).toEqual(['typescript-advanced-types']);
+
+    const repoInput = resolveProviderInstallInput('github:vercel-labs/agent-skills');
+    if (repoInput.kind !== 'request') {
+      throw new Error('Expected a provider install request.');
+    }
+    expect(repoInput.request.installLocator).toBe('github:vercel-labs/agent-skills');
+    expect(repoInput.request.skills).toEqual([]);
+
+    const queryInput = resolveProviderInstallInput('typescript');
+    expect(queryInput).toEqual({
+      kind: 'query',
+      provider: 'skills.sh',
+      query: 'typescript',
+    });
   });
 
   test('detects and applies updates from a local git source', async () => {
@@ -556,7 +580,7 @@ describe('update and cli flows', () => {
     }
   });
 
-  test('skills install reuses the normal install flow for repo-and-skill input', async () => {
+  test('skills install reuses the normal install flow for repo-and-skill input without persisting a source', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const repoDir = await makeTempDir('agentpm-git-source-');
     const projectDir = await makeTempDir('agentpm-project-');
@@ -584,8 +608,7 @@ describe('update and cli flows', () => {
       env: { AGENTPM_HOME: homeDir },
     });
     try {
-      expect(service.listSources()).toHaveLength(1);
-      expect(service.listSources()[0]?.locator).toBe(path.resolve(repoDir));
+      expect(service.listSources()).toHaveLength(0);
     } finally {
       service.close();
     }
