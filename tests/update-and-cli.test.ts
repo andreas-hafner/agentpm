@@ -9,6 +9,7 @@ import { describe, expect, test } from 'vitest';
 import {
   AgentPmService,
   parseSkillsProviderSearchOutput,
+  resolveProviderInstallInput,
   resolveProviderInstallRequest,
 } from '@agentpm/core';
 
@@ -165,6 +166,34 @@ describe('update and cli flows', () => {
         selector: null,
       }),
     );
+  });
+
+  test('treats plain skills install text as either a repo/source request or a search query', () => {
+    expect(resolveProviderInstallInput('wshobson/agents@typescript-advanced-types'))
+      .toEqual(
+        expect.objectContaining({
+          kind: 'request',
+          request: expect.objectContaining({
+            installLocator: 'github:wshobson/agents',
+            skills: ['typescript-advanced-types'],
+          }),
+        }),
+      );
+    expect(resolveProviderInstallInput('github:vercel-labs/agent-skills'))
+      .toEqual(
+        expect.objectContaining({
+          kind: 'request',
+          request: expect.objectContaining({
+            installLocator: 'github:vercel-labs/agent-skills',
+            skills: [],
+          }),
+        }),
+      );
+    expect(resolveProviderInstallInput('typescript')).toEqual({
+      kind: 'query',
+      provider: 'skills.sh',
+      query: 'typescript',
+    });
   });
 
   test('detects and applies updates from a local git source', async () => {
@@ -556,7 +585,7 @@ describe('update and cli flows', () => {
     }
   });
 
-  test('skills install reuses the normal install flow for repo-and-skill input', async () => {
+  test('skills install reuses the normal install flow for repo-and-skill input without persisting a source', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
     const repoDir = await makeTempDir('agentpm-git-source-');
     const projectDir = await makeTempDir('agentpm-project-');
@@ -584,8 +613,7 @@ describe('update and cli flows', () => {
       env: { AGENTPM_HOME: homeDir },
     });
     try {
-      expect(service.listSources()).toHaveLength(1);
-      expect(service.listSources()[0]?.locator).toBe(path.resolve(repoDir));
+      expect(service.listSources()).toHaveLength(0);
     } finally {
       service.close();
     }

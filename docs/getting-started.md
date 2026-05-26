@@ -99,6 +99,7 @@ For public no-key discovery and import, use the skills.sh CLI bridge:
 ```bash
 agentpm skills search typescript
 agentpm skills install wshobson/agents@typescript-advanced-types --project
+agentpm skills install typescript
 ```
 
 Adding a source immediately rebuilds the local searchable index for that source. Use `agentpm refresh` to rebuild all configured source indexes later, or pass source ids or locators to refresh only selected sources. `agentpm search --refresh <query>` refreshes before searching when you expect new Git repository entries, and normal search prints a stale-index hint when no matches are found. `agentpm update --refresh` refreshes source indexes before showing the update preview.

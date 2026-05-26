@@ -145,6 +145,7 @@ agentpm source add ./examples/repos/codex-sample
 agentpm source skills github:company/private-skills
 agentpm skills search typescript
 agentpm skills install wshobson/agents@typescript-advanced-types --project
+agentpm skills install typescript
 agentpm skills list
 agentpm skills update --yes
 agentpm skills remove typescript-advanced-types
@@ -170,7 +171,7 @@ agentpm push --all --to git@github.com:my-org/my-skills.git
 
 - AgentPM detects pushable local entries from native layouts such as `.agents/skills`, `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, plain `skills/`, and `subagents/`.
 - If you omit the name or path in a TTY session, AgentPM shows an interactive selector. Use Space to toggle, `a` to select all, `n` to select none, and Enter to confirm.
-- If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
+- If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default in global AgentPM config. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
 - Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
 - The target repository can be empty. AgentPM reuses a cached checkout for repeat pushes, copies the selected entries into place, commits, and pushes `HEAD`.
 

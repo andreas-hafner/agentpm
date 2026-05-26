@@ -419,7 +419,8 @@ function printProviderEntries(results: ProviderSkillSearchResult[]): void {
     }
   }
   console.log(
-    `\n  ${symbols.info} Install with ${style.bold('agentpm skills install <owner/repo@skill>')}\n`,
+    `\n  ${symbols.info} Install with ${style.bold('agentpm skills install <owner/repo@skill>')}` +
+      ` ${style.gray('or')} ${style.bold('agentpm skills install <query>')}\n`,
   );
 }
 
@@ -469,7 +470,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.6.1')
+  .version('0.7.0')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock())
@@ -716,96 +717,56 @@ source
 const targetCmd = program
   .command('target')
   .alias('targets')
-  .description('Manage push targets in project config');
+  .description('Manage global push targets');
 
 targetCmd
   .command('add')
   .argument('<id>', 'Target ID')
   .argument('<locator>', 'Target locator (Git URL or registry path)')
-  .option('--global', 'Add target to global config')
   .option('--default', 'Make this the default push target')
-  .action(
-    async (
-      id: string,
-      locator: string,
-      flags: { global?: boolean; default?: boolean },
-    ) => {
-      await withService((service) =>
-        service.addTarget(id, locator, flags.global, flags.default),
-      );
-      if (flags.global) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
-        );
-      } else {
-        console.log(
-          `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to ${style.bold('agentpm.yaml')}${flags.default ? ' as default' : ''}\n`,
-        );
-      }
-    },
-  );
+  .action(async (id: string, locator: string, flags: { default?: boolean }) => {
+    await withService((service) => service.addTarget(id, locator, flags.default));
+    console.log(
+      `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
+    );
+  });
 
 targetCmd
   .command('default')
   .argument('<id>', 'Target ID')
-  .option('--global', 'Set the default in global config')
-  .action(async (id: string, flags: { global?: boolean }) => {
-    await withService((service) => service.setDefaultTarget(id, flags.global));
+  .action(async (id: string) => {
+    await withService((service) => service.setDefaultTarget(id));
     console.log(
-      `\n${symbols.success} ${style.bold('Default target')} ${style.cyan(id)} saved to ${flags.global ? 'global config' : 'agentpm.yaml'}\n`,
+      `\n${symbols.success} ${style.bold('Default target')} ${style.cyan(id)} saved to global config\n`,
     );
   });
 
 targetCmd
   .command('remove')
   .argument('<id>', 'Target ID')
-  .option('--global', 'Remove target from global config')
-  .action(async (id: string, flags: { global?: boolean }) => {
-    await withService((service) => service.removeTarget(id, flags.global));
-    if (flags.global) {
-      console.log(
-        `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`,
-      );
-    } else {
-      console.log(
-        `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from ${style.bold('agentpm.yaml')}\n`,
-      );
-    }
+  .action(async (id: string) => {
+    await withService((service) => service.removeTarget(id));
+    console.log(
+      `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`,
+    );
   });
 
 targetCmd.command('list').action(async () => {
-  const { loadProjectConfig, loadGlobalConfig } =
-    await import('@agentpm/config');
-  const config = await loadProjectConfig(process.cwd());
+  const { loadGlobalConfig } = await import('@agentpm/config');
   const globalConfig = await loadGlobalConfig(process.cwd());
-
-  const projectTargets = config?.manifest.targets ?? [];
   const globalTargets = globalConfig.targets ?? [];
 
-  if (projectTargets.length === 0 && globalTargets.length === 0) {
-    console.log('No targets configured in agentpm.yaml or global config.');
+  if (globalTargets.length === 0) {
+    console.log('No targets configured in global config.');
     return;
   }
 
-  if (projectTargets.length > 0) {
-    console.log('Project Targets (agentpm.yaml):');
-    for (const target of projectTargets) {
-      const targetId = target.id ?? '(unnamed)';
-      console.log(
-        `${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`,
-      );
-    }
-    console.log('');
-  }
-
-  if (globalTargets.length > 0) {
-    console.log('Global Targets (config.yaml):');
-    for (const target of globalTargets) {
-      const targetId = target.id ?? '(unnamed)';
-      console.log(
-        `${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`,
-      );
-    }
+  console.log('Global Targets (config.yaml):');
+  for (const target of globalTargets) {
+    const targetId = target.id ?? '(unnamed)';
+    console.log(
+      `${target.default ? '*' : ' '} ${targetId.padEnd(20)} ${target.kind?.padEnd(10) ?? ''} ${target.locator}`,
+    );
   }
 });
 
