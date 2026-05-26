@@ -169,27 +169,22 @@ describe('update and cli flows', () => {
   });
 
   test('treats plain skills install text as either a repo/source request or a search query', () => {
-    expect(resolveProviderInstallInput('wshobson/agents@typescript-advanced-types'))
-      .toEqual(
-        expect.objectContaining({
-          kind: 'request',
-          request: expect.objectContaining({
-            installLocator: 'github:wshobson/agents',
-            skills: ['typescript-advanced-types'],
-          }),
-        }),
-      );
-    expect(resolveProviderInstallInput('github:vercel-labs/agent-skills'))
-      .toEqual(
-        expect.objectContaining({
-          kind: 'request',
-          request: expect.objectContaining({
-            installLocator: 'github:vercel-labs/agent-skills',
-            skills: [],
-          }),
-        }),
-      );
-    expect(resolveProviderInstallInput('typescript')).toEqual({
+    const selectorInput = resolveProviderInstallInput('wshobson/agents@typescript-advanced-types');
+    if (selectorInput.kind !== 'request') {
+      throw new Error('Expected a provider install request.');
+    }
+    expect(selectorInput.request.installLocator).toBe('github:wshobson/agents');
+    expect(selectorInput.request.skills).toEqual(['typescript-advanced-types']);
+
+    const repoInput = resolveProviderInstallInput('github:vercel-labs/agent-skills');
+    if (repoInput.kind !== 'request') {
+      throw new Error('Expected a provider install request.');
+    }
+    expect(repoInput.request.installLocator).toBe('github:vercel-labs/agent-skills');
+    expect(repoInput.request.skills).toEqual([]);
+
+    const queryInput = resolveProviderInstallInput('typescript');
+    expect(queryInput).toEqual({
       kind: 'query',
       provider: 'skills.sh',
       query: 'typescript',
