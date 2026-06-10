@@ -50,7 +50,9 @@ import {
   MANIFEST_VERSION,
   classifyLocator,
   displayNameFromLocator,
+  isGitHubRepoShorthand,
   makeId,
+  normalizeGitHubRepoLocator,
   nowIso,
   slugify,
   toPosixPath,
@@ -288,11 +290,17 @@ export class AgentPmService {
   }
 
   private async toGitTransportLocator(locator: string): Promise<string> {
+    if (locator.startsWith('github:')) {
+      return `https://github.com/${locator
+        .slice('github:'.length)
+        .replace(/^\/+/, '')
+        .replace(/\.git$/i, '')}.git`;
+    }
     if (locator.includes('://') || locator.includes('@')) {
       return locator;
     }
 
-    const localPath = path.resolve(locator);
+    const localPath = path.resolve(this.cwd, locator);
     if (await pathExists(localPath)) {
       return pathToFileURL(localPath).href;
     }
@@ -304,7 +312,9 @@ export class AgentPmService {
     await this.initialize();
     const kind = await this.classifySource(locator);
     const normalizedLocator = this.normalizeLocator(locator, kind);
-    this.reportStatus(`Resolving source ${displayNameFromLocator(normalizedLocator)}...`);
+    this.reportStatus(
+      `Resolving source ${displayNameFromLocator(normalizedLocator)}...`,
+    );
     const sourceId = makeId('src', kind, normalizedLocator);
     const source: SourceRecord = {
       id: sourceId,
@@ -329,7 +339,10 @@ export class AgentPmService {
 
   async listSourceEntries(
     sourceToken?: string,
-    options: { refresh?: boolean | undefined; target?: AdapterId | undefined } = {},
+    options: {
+      refresh?: boolean | undefined;
+      target?: AdapterId | undefined;
+    } = {},
   ): Promise<SourceEntriesResult> {
     await this.initialize();
 
@@ -416,9 +429,13 @@ export class AgentPmService {
       };
     }
 
-    const prepared = await this.prepareInspectionTarget(normalizedLocator, kind, {
-      sourceId: null,
-    });
+    const prepared = await this.prepareInspectionTarget(
+      normalizedLocator,
+      kind,
+      {
+        sourceId: null,
+      },
+    );
     try {
       const entries = this.catalogEntriesFromInspection(
         '__preview__',
@@ -538,12 +555,16 @@ export class AgentPmService {
     return [...catalogResults, ...this.db.searchInstalled(query)];
   }
 
-  async searchProviderSkills(query: string): Promise<ProviderSkillSearchResult[]> {
+  async searchProviderSkills(
+    query: string,
+  ): Promise<ProviderSkillSearchResult[]> {
     await this.initialize();
     return searchProviderSkills(query, this.env);
   }
 
-  listProviderSkillInstalls(provider = 'skills.sh'): ProviderInstalledSkillRecord[] {
+  listProviderSkillInstalls(
+    provider = 'skills.sh',
+  ): ProviderInstalledSkillRecord[] {
     return this.db
       .listInstalls()
       .filter((install) => install.metadata.provider === provider)
@@ -586,7 +607,9 @@ export class AgentPmService {
         resolved.provider,
       );
       if (results.length === 0) {
-        throw new AgentPmError(`No public skills found for "${resolved.query}".`);
+        throw new AgentPmError(
+          `No public skills found for "${resolved.query}".`,
+        );
       }
       if (!this.prompts.selectOne) {
         throw new AgentPmError(
@@ -1166,20 +1189,17 @@ export class AgentPmService {
             binding.source.id === sourceToken ||
             this.matchesConfiguredSourceToken(binding, sourceToken),
         ) ?? null;
-      const created = await this.install(
-        sourceBinding ? [] : [sourceToken],
-        {
-          from: sourceBinding?.source.locator,
-          scope: installSpec.scope,
-          workspaceRoot: installSpec.workspaceRoot,
-          skills: installSpec.items,
-          ref: installSpec.ref ?? null,
-          revision: installSpec.revision ?? null,
-          target: installSpec.target ?? installSpec.adapter,
-          yes: true,
-          updateProjectConfig: false,
-        },
-      );
+      const created = await this.install(sourceBinding ? [] : [sourceToken], {
+        from: sourceBinding?.source.locator,
+        scope: installSpec.scope,
+        workspaceRoot: installSpec.workspaceRoot,
+        skills: installSpec.items,
+        ref: installSpec.ref ?? null,
+        revision: installSpec.revision ?? null,
+        target: installSpec.target ?? installSpec.adapter,
+        yes: true,
+        updateProjectConfig: false,
+      });
       installs.push(...created);
     }
 
@@ -1193,13 +1213,14 @@ export class AgentPmService {
   ): Promise<void> {
     await this.initialize();
     const sourceKind = await this.classifySource(locator);
+    const normalizedLocator = this.normalizeLocator(locator, sourceKind);
     const pushKind = sourceKind === 'local' ? ('git' as const) : sourceKind;
     const { addTargetToGlobalConfig } = await import('@agentpm/config');
     await addTargetToGlobalConfig(
       this.cwd,
       {
         id,
-        locator,
+        locator: normalizedLocator,
         kind: pushKind,
         default: defaultTarget,
       },
@@ -1264,13 +1285,17 @@ export class AgentPmService {
     const targets = globalConfig.targets ?? [];
 
     if (token) {
-      const match = targets.find((t) => t.id === token || t.locator === token);
+      const normalizedToken = this.normalizeTargetToken(token);
+      const match = targets.find(
+        (t) => t.id === token || t.locator === normalizedToken,
+      );
       if (match) {
         return match;
       }
       return {
-        locator: token,
-        kind: classifyLocator(token) === 'registry' ? 'registry' : 'git',
+        locator: normalizedToken,
+        kind:
+          classifyLocator(normalizedToken) === 'registry' ? 'registry' : 'git',
       };
     }
 
@@ -1322,12 +1347,16 @@ export class AgentPmService {
     );
   }
 
-  private installRecordToManifestSpec(install: InstallRecord): ManifestInstallSpec {
+  private installRecordToManifestSpec(
+    install: InstallRecord,
+  ): ManifestInstallSpec {
     return {
       name: install.name,
       source: install.sourceId,
       items:
-        install.selectedItems.length > 0 ? install.selectedItems : [install.name],
+        install.selectedItems.length > 0
+          ? install.selectedItems
+          : [install.name],
       scope: install.scope === 'global' ? 'project' : install.scope,
       ref: install.contentRef ?? undefined,
       revision: install.installedRevision ?? undefined,
@@ -1353,48 +1382,53 @@ export class AgentPmService {
       return;
     }
 
-    const localInstalls = installs.filter((install) => install.scope !== 'global');
+    const localInstalls = installs.filter(
+      (install) => install.scope !== 'global',
+    );
     if (localInstalls.length === 0) {
       return;
     }
 
-    const sources = localInstalls
-      .map((install) => {
-        const source = this.db.getSource(install.sourceId);
-        if (source) {
-          return {
-            id: source.id,
-            locator: source.locator,
-            kind: source.kind,
-          } satisfies ManifestSourceSpec;
-        }
-
-        const sourceLocator =
-          typeof install.metadata.sourceLocator === 'string'
-            ? install.metadata.sourceLocator
-            : install.contentLocator;
-        const sourceKind =
-          typeof install.metadata.sourceKind === 'string'
-            ? (install.metadata.sourceKind as SourceKind)
-            : classifyLocator(sourceLocator) === 'registry'
-              ? 'registry'
-              : install.contentKind === 'local'
-                ? 'local'
-                : 'git';
+    const sources = localInstalls.map((install) => {
+      const source = this.db.getSource(install.sourceId);
+      if (source) {
         return {
-          id: install.sourceId,
-          locator: sourceLocator,
-          kind: sourceKind,
+          id: source.id,
+          locator: source.locator,
+          kind: source.kind,
         } satisfies ManifestSourceSpec;
-      });
+      }
+
+      const sourceLocator =
+        typeof install.metadata.sourceLocator === 'string'
+          ? install.metadata.sourceLocator
+          : install.contentLocator;
+      const sourceKind =
+        typeof install.metadata.sourceKind === 'string'
+          ? (install.metadata.sourceKind as SourceKind)
+          : classifyLocator(sourceLocator) === 'registry'
+            ? 'registry'
+            : install.contentKind === 'local'
+              ? 'local'
+              : 'git';
+      return {
+        id: install.sourceId,
+        locator: sourceLocator,
+        kind: sourceKind,
+      } satisfies ManifestSourceSpec;
+    });
 
     const uniqueSources = [
-      ...new Map(sources.map((source) => [source.id ?? source.locator, source])).values(),
+      ...new Map(
+        sources.map((source) => [source.id ?? source.locator, source]),
+      ).values(),
     ];
 
     await upsertProjectConfigInstalls(this.cwd, {
       sources: uniqueSources,
-      installs: localInstalls.map((install) => this.installRecordToManifestSpec(install)),
+      installs: localInstalls.map((install) =>
+        this.installRecordToManifestSpec(install),
+      ),
     });
   }
 
@@ -1475,8 +1509,7 @@ export class AgentPmService {
   ): void {
     const collisions = new Map<string, PushCandidate[]>();
     for (const candidate of candidates) {
-      const existing =
-        collisions.get(candidate.destinationRelativePath) ?? [];
+      const existing = collisions.get(candidate.destinationRelativePath) ?? [];
       existing.push(candidate);
       collisions.set(candidate.destinationRelativePath, existing);
     }
@@ -1721,10 +1754,13 @@ export class AgentPmService {
       }
 
       this.reportStatus('Pushing changes to the remote target...');
-      await runGitCommand(['push', '--quiet', '--set-upstream', 'origin', 'HEAD'], {
-        cwd: releasePath,
-        env: this.env,
-      });
+      await runGitCommand(
+        ['push', '--quiet', '--set-upstream', 'origin', 'HEAD'],
+        {
+          cwd: releasePath,
+          env: this.env,
+        },
+      );
 
       const cacheKey = makeId('push-target', locator);
       this.db.saveCacheRepo({
@@ -1766,9 +1802,13 @@ export class AgentPmService {
     const transportLocator = await this.toGitTransportLocator(locator);
 
     if (!(await pathExists(gitDir))) {
-      await fs.rm(cacheBasePath, { recursive: true, force: true }).catch(() => {});
+      await fs
+        .rm(cacheBasePath, { recursive: true, force: true })
+        .catch(() => {});
       await ensureDir(cacheBasePath);
-      this.reportStatus('Cloning the target repository into the local cache...');
+      this.reportStatus(
+        'Cloning the target repository into the local cache...',
+      );
       await runGitCommand(['clone', '--quiet', transportLocator, repoPath], {
         env: this.env,
       });
@@ -2028,7 +2068,9 @@ export class AgentPmService {
     const loadedConfig = await loadProjectConfig(this.cwd);
     const target = await this.resolvePushTarget(options.target, loadedConfig);
     if (target.kind === 'registry') {
-      throw new AgentPmError('Pulling from a registry target is not supported.');
+      throw new AgentPmError(
+        'Pulling from a registry target is not supported.',
+      );
     }
 
     const scope: InstallScope = options.scope ?? 'global';
@@ -2037,13 +2079,14 @@ export class AgentPmService {
 
     this.reportStatus('Fetching the canonical skills repository...');
     const { repoPath } = await this.preparePushTargetRepository(target.locator);
-    const revision = (
-      await runGitCommand(['rev-parse', 'HEAD'], {
-        cwd: repoPath,
-        env: this.env,
-        captureStdout: true,
-      }).catch(() => ({ stdout: '' }))
-    ).stdout.trim() || null;
+    const revision =
+      (
+        await runGitCommand(['rev-parse', 'HEAD'], {
+          cwd: repoPath,
+          env: this.env,
+          captureStdout: true,
+        }).catch(() => ({ stdout: '' }))
+      ).stdout.trim() || null;
 
     const report = await inspectRepository(repoPath, target.locator, 'git');
     const available = listInstallableEntries(report).filter(
@@ -2691,9 +2734,13 @@ export class AgentPmService {
       return { source, indexedEntries: entries.length };
     }
 
-    const prepared = await this.prepareInspectionTarget(source.locator, source.kind, {
-      sourceId: source.id,
-    });
+    const prepared = await this.prepareInspectionTarget(
+      source.locator,
+      source.kind,
+      {
+        sourceId: source.id,
+      },
+    );
     try {
       const entries = this.catalogEntriesFromInspection(
         source.id,
@@ -2809,11 +2856,20 @@ export class AgentPmService {
 
   private async classifySource(locator: string): Promise<SourceKind> {
     const kind = classifyLocator(locator);
+    if (kind === 'git' && isGitHubRepoShorthand(locator)) {
+      const localPath = path.resolve(this.cwd, this.expandHomePath(locator));
+      if (await pathExists(localPath)) {
+        return 'local';
+      }
+    }
     if (kind !== 'local') {
       return kind;
     }
 
-    const resolved = path.resolve(this.normalizeLocator(locator, kind));
+    const resolved = path.resolve(
+      this.cwd,
+      this.normalizeLocator(locator, kind),
+    );
     const stats = await fs.stat(resolved).catch(() => null);
     if (!stats) {
       throw new AgentPmError(`Path does not exist: ${resolved}`);
@@ -2832,19 +2888,20 @@ export class AgentPmService {
     if (trimmed.startsWith('registry:')) {
       return trimmed.slice('registry:'.length);
     }
-    if (trimmed.startsWith('github:')) {
-      const repo = trimmed
+    if (trimmed.startsWith('local:')) {
+      const localPath = trimmed.slice('local:'.length);
+      return path.resolve(this.cwd, this.expandHomePath(localPath));
+    }
+    if (kind === 'local' || (kind === 'registry' && !locator.includes('://'))) {
+      return path.resolve(this.cwd, this.expandHomePath(locator));
+    }
+    const normalizedGithub = normalizeGitHubRepoLocator(trimmed);
+    if (normalizedGithub.startsWith('github:')) {
+      const repo = normalizedGithub
         .slice('github:'.length)
         .replace(/^\/+/, '')
         .replace(/\.git$/i, '');
-      return `https://github.com/${repo}.git`;
-    }
-    if (trimmed.startsWith('local:')) {
-      const localPath = trimmed.slice('local:'.length);
-      return path.resolve(this.expandHomePath(localPath));
-    }
-    if (kind === 'local' || (kind === 'registry' && !locator.includes('://'))) {
-      return path.resolve(this.expandHomePath(locator));
+      return `github:${repo}`;
     }
     return trimmed;
   }
@@ -3294,20 +3351,29 @@ export class AgentPmService {
       updatedAt: nowIso(),
     };
     const storedSource = this.db.upsertSource(source);
-    const entries = preview.entries.map((entry) => ({
-      id: makeId('temp-cat', transientId, entry.name, entry.repo, entry.path ?? ''),
-      sourceId: transientId,
-      name: entry.name,
-      description: entry.description,
-      repo: entry.repo,
-      ref: null,
-      path: entry.path,
-      adapterHint: entry.adapter,
-      tags: entry.adapter ? [entry.adapter] : [],
-      metadata: {},
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    } satisfies CatalogEntryRecord));
+    const entries = preview.entries.map(
+      (entry) =>
+        ({
+          id: makeId(
+            'temp-cat',
+            transientId,
+            entry.name,
+            entry.repo,
+            entry.path ?? '',
+          ),
+          sourceId: transientId,
+          name: entry.name,
+          description: entry.description,
+          repo: entry.repo,
+          ref: null,
+          path: entry.path,
+          adapterHint: entry.adapter,
+          tags: entry.adapter ? [entry.adapter] : [],
+          metadata: {},
+          createdAt: nowIso(),
+          updatedAt: nowIso(),
+        }) satisfies CatalogEntryRecord,
+    );
     this.db.replaceCatalogEntries(storedSource.id, entries);
     return {
       source: storedSource,
@@ -3326,15 +3392,13 @@ export class AgentPmService {
       requireFullCheckout?: boolean | undefined;
     },
   ): Promise<PreparedContent> {
-    const requestedRef =
-      options.revision ?? options.ref ?? null;
+    const requestedRef = options.revision ?? options.ref ?? null;
     const cacheKey = makeId('cache', locator, requestedRef ?? 'HEAD');
     const cacheBasePath = this.cacheBasePath(cacheKey);
     const existingCache = this.db.getCacheRepo(cacheKey);
     const installCount = this.db.countInstallsForCacheKey(cacheKey);
     const requireFullCheckout = Boolean(options.requireFullCheckout);
-    const hasFullCheckout =
-      existingCache?.metadata.fullCheckout === true;
+    const hasFullCheckout = existingCache?.metadata.fullCheckout === true;
 
     if (requireFullCheckout && existingCache && !hasFullCheckout) {
       if (installCount > 0) {
@@ -3344,7 +3408,11 @@ export class AgentPmService {
           undefined,
           this.env,
         );
-        const report = await inspectRepository(release.releasePath, locator, 'git');
+        const report = await inspectRepository(
+          release.releasePath,
+          locator,
+          'git',
+        );
         return {
           report,
           contentKind: 'git',
@@ -3389,7 +3457,11 @@ export class AgentPmService {
             options.ref ?? undefined,
             this.env,
           );
-          report = await inspectRepository(fallback.releasePath, locator, 'git');
+          report = await inspectRepository(
+            fallback.releasePath,
+            locator,
+            'git',
+          );
           return {
             report,
             contentKind: 'git',
@@ -3468,9 +3540,8 @@ export class AgentPmService {
       const entries = (
         forcedInstallSource?.persisted
           ? this.db.listCatalogEntriesBySource(forcedSource.id)
-          : forcedInstallSource?.entries ?? []
-      )
-        .filter((entry) => matchesCatalogEntryTarget(entry, options.target));
+          : (forcedInstallSource?.entries ?? [])
+      ).filter((entry) => matchesCatalogEntryTarget(entry, options.target));
 
       if (entries.length === 0) {
         const targetSummary = options.target ? ` for ${options.target}` : '';
@@ -3695,8 +3766,10 @@ export class AgentPmService {
     selectors: string[],
     target?: AdapterId,
   ): Promise<Array<{ source: SourceRecord; entry: CatalogEntryRecord }>> {
-    const selections: Array<{ source: SourceRecord; entry: CatalogEntryRecord }> =
-      [];
+    const selections: Array<{
+      source: SourceRecord;
+      entry: CatalogEntryRecord;
+    }> = [];
     for (const selector of selectors) {
       const matches = entries.filter((entry) =>
         matchesCatalogEntrySelector(entry, selector),
@@ -3830,14 +3903,20 @@ export class AgentPmService {
   }
 
   private resolveContentLocator(locator: string): string {
+    const normalizedGithub = normalizeGitHubRepoLocator(locator);
     if (
-      locator.includes('://') ||
-      locator.includes('@') ||
-      locator.endsWith('.git')
+      normalizedGithub.includes('://') ||
+      normalizedGithub.includes('@') ||
+      normalizedGithub.endsWith('.git') ||
+      normalizedGithub.startsWith('github:')
     ) {
-      return locator;
+      return normalizedGithub;
     }
-    return path.resolve(locator);
+    return path.resolve(this.cwd, locator);
+  }
+
+  private normalizeTargetToken(token: string): string {
+    return normalizeGitHubRepoLocator(token.trim());
   }
 
   private async resolveContentKind(locator: string): Promise<ContentKind> {
@@ -3891,7 +3970,9 @@ export class AgentPmService {
     return matches;
   }
 
-  private async resolveProviderInstall(identifier: string): Promise<InstallRecord> {
+  private async resolveProviderInstall(
+    identifier: string,
+  ): Promise<InstallRecord> {
     const matches = this.resolveProviderInstalls([identifier]);
     if (matches.length === 1) {
       return matches[0]!;

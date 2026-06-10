@@ -7,7 +7,9 @@ import {
   type ProviderSkillSearchResult,
   type UpdateOptions,
 } from '@agentpm/core';
-import { createPromptApi, promptToConfirm } from '@agentpm/ui';
+import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
+
+import { resolveTargetAddArgs } from './target-add.js';
 
 type AgentId = 'codex' | 'claude' | 'generic';
 
@@ -77,6 +79,15 @@ const symbols = {
 function brandBlock(): string {
   const logo = BRAND_LINES.map((line) => style.cyan(line)).join('\n');
   return `\n${logo}\n\n  ${style.bold(style.cyan('AgentPM'))} ${style.gray('—')} ${style.bold('Project-aware AI skill orchestration')}\n`;
+}
+
+function formatExamples(examples: string[]): string {
+  return `\nExamples:\n${examples.map((example) => `  ${example}`).join('\n')}\n`;
+}
+
+function addExamples<T extends Command>(command: T, examples: string[]): T {
+  command.addHelpText('after', formatExamples(examples));
+  return command;
 }
 
 function section(title: string): void {
@@ -399,9 +410,7 @@ function printSourceEntries(
   console.log(
     `  ${symbols.bullet} source       : ${style.bold(result.sourceDisplayName)}`,
   );
-  console.log(
-    `  ${symbols.bullet} locator      : ${result.sourceLocator}`,
-  );
+  console.log(`  ${symbols.bullet} locator      : ${result.sourceLocator}`);
   console.log(
     `  ${symbols.bullet} persisted    : ${result.persisted ? style.green('yes') : style.yellow('no')}`,
   );
@@ -447,7 +456,9 @@ function printProviderEntries(results: ProviderSkillSearchResult[]): void {
   );
 }
 
-function printInstalledProviderSkills(results: ProviderInstalledSkillRecord[]): void {
+function printInstalledProviderSkills(
+  results: ProviderInstalledSkillRecord[],
+): void {
   section('Installed Public Skills');
   if (results.length === 0) {
     console.log(`  ${symbols.info} No skills.sh installs found.\n`);
@@ -493,84 +504,101 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.7.0')
+  .version('0.9.0')
   .exitOverride()
   .showHelpAfterError(false)
-  .addHelpText('beforeAll', brandBlock())
-  .addHelpText(
-    'afterAll',
-    `
-Examples:
-  agentpm source add git@github.com:company/skills.git
-  agentpm source skills github:company/private-skills
-  agentpm skills search typescript
-  agentpm skills install wshobson/agents@typescript-advanced-types --project
-  agentpm search pdf --refresh
-  agentpm install --from github:company/private-skills
-  agentpm sync
-  agentpm update --refresh
-  agentpm doctor --fix
-  agentpm cache clean --dry-run
-  agentpm target add production git@github.com:company/skills.git --default
-  agentpm push --all
-`,
-  );
+  .addHelpText('beforeAll', brandBlock());
 
-const source = program
-  .command('source')
-  .alias('sources')
-  .description('Manage sources');
+addExamples(program, [
+  'agentpm source add travelhawk/skills-vault',
+  'agentpm source skills github:company/private-skills',
+  'agentpm skills search typescript',
+  'agentpm skills install wshobson/agents@typescript-advanced-types --project',
+  'agentpm install --from travelhawk/skills-vault --skill release-helper --project',
+  'agentpm target add https://github.com/travelhawk/skills-vault',
+  'agentpm push --all',
+  'agentpm pull --from skills-vault',
+  'agentpm doctor --fix',
+]);
 
-const skillsCmd = program
-  .command('skills')
-  .description('Search and import public skills through the skills.sh CLI bridge');
+const source = addExamples(
+  program.command('source').alias('sources').description('Manage sources'),
+  [
+    'agentpm source add travelhawk/skills-vault',
+    'agentpm source add ./examples/repos/codex-sample',
+    'agentpm source skills skills-vault',
+    'agentpm source remove skills-vault',
+  ],
+);
 
-skillsCmd
-  .command('search')
-  .argument('<query>', 'Search query for skills.sh')
-  .option('--json', 'Print machine-readable JSON')
-  .action(async (query: string, flags: { json?: boolean }) => {
-    const results = await withService(
-      (service) => service.searchProviderSkills(query),
-    );
-    if (flags.json) {
-      console.log(JSON.stringify(results, null, 2));
-      return;
-    }
-    printProviderEntries(results);
-  });
+const skillsCmd = addExamples(
+  program
+    .command('skills')
+    .description(
+      'Search and import public skills through the skills.sh CLI bridge',
+    ),
+  [
+    'agentpm skills search typescript',
+    'agentpm skills install wshobson/agents@typescript-advanced-types --project',
+    'agentpm skills list',
+    'agentpm skills update --yes',
+  ],
+);
 
-skillsCmd
-  .command('install')
-  .argument(
-    '<source-or-selector>',
-    'Provider selector like owner/repo@skill, or a repo/url plus --skill',
-  )
-  .option('--skill <name>', 'Skill name when passing a repo or URL', collect, [])
-  .option('--global', 'Install to the global native target')
-  .option('--project', 'Install to the current project')
-  .option('--workspace', 'Install to a workspace root')
-  .option('--workspace-root <path>', 'Explicit workspace root')
-  .option(
-    '--target <target>',
-    'Install only entries for codex, claude, or generic',
-  )
-  .option('--yes', 'Accept safe install prompts automatically')
-  .action(
-    async (
-      sourceOrSelector: string,
-      flags: InstallOptions & {
-        global?: boolean;
-        project?: boolean;
-        workspace?: boolean;
-        workspaceRoot?: string;
-        skill?: string[];
-        target?: string;
-        yes?: boolean;
-      },
-    ) => {
-      const installs = await withService(
-        (service) =>
+addExamples(
+  skillsCmd
+    .command('search')
+    .argument('<query>', 'Search query for skills.sh')
+    .option('--json', 'Print machine-readable JSON')
+    .action(async (query: string, flags: { json?: boolean }) => {
+      const results = await withService((service) =>
+        service.searchProviderSkills(query),
+      );
+      if (flags.json) {
+        console.log(JSON.stringify(results, null, 2));
+        return;
+      }
+      printProviderEntries(results);
+    }),
+  ['agentpm skills search typescript', 'agentpm skills search react --json'],
+);
+
+addExamples(
+  skillsCmd
+    .command('install')
+    .argument(
+      '<source-or-selector>',
+      'Provider selector like owner/repo@skill, or a repo/url plus --skill',
+    )
+    .option(
+      '--skill <name>',
+      'Skill name when passing a repo or URL',
+      collect,
+      [],
+    )
+    .option('--global', 'Install to the global native target')
+    .option('--project', 'Install to the current project')
+    .option('--workspace', 'Install to a workspace root')
+    .option('--workspace-root <path>', 'Explicit workspace root')
+    .option(
+      '--target <target>',
+      'Install only entries for codex, claude, or generic',
+    )
+    .option('--yes', 'Accept safe install prompts automatically')
+    .action(
+      async (
+        sourceOrSelector: string,
+        flags: InstallOptions & {
+          global?: boolean;
+          project?: boolean;
+          workspace?: boolean;
+          workspaceRoot?: string;
+          skill?: string[];
+          target?: string;
+          yes?: boolean;
+        },
+      ) => {
+        const installs = await withService((service) =>
           service.installProviderSkill(sourceOrSelector, {
             scope: resolveScope(flags),
             workspaceRoot: flags.workspaceRoot,
@@ -578,22 +606,27 @@ skillsCmd
             target: resolveTarget(flags.target),
             yes: flags.yes,
           }),
-      );
-      for (const install of installs) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
         );
-      }
-      console.log('');
-    },
-  );
+        for (const install of installs) {
+          console.log(
+            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+          );
+        }
+        console.log('');
+      },
+    ),
+  [
+    'agentpm skills install wshobson/agents@typescript-advanced-types --project',
+    'agentpm skills install vercel-labs/agent-skills --skill nextjs-architecture --global',
+  ],
+);
 
 skillsCmd
   .command('list')
   .option('--json', 'Print machine-readable JSON')
   .action(async (flags: { json?: boolean }) => {
-    const installs = await withService(
-      (service) => Promise.resolve(service.listProviderSkillInstalls()),
+    const installs = await withService((service) =>
+      Promise.resolve(service.listProviderSkillInstalls()),
     );
     if (flags.json) {
       console.log(JSON.stringify(installs, null, 2));
@@ -604,11 +637,14 @@ skillsCmd
 
 skillsCmd
   .command('remove')
-  .argument('<name-or-selector>', 'Installed skill name or owner/repo@skill selector')
+  .argument(
+    '<name-or-selector>',
+    'Installed skill name or owner/repo@skill selector',
+  )
   .option('--purge', 'Also purge unused cache data')
   .action(async (identifier: string, flags: { purge?: boolean }) => {
-    const removed = await withService(
-      (service) => service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
+    const removed = await withService((service) =>
+      service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
     );
     const selector =
       typeof removed.metadata.providerSkillSelector === 'string'
@@ -621,69 +657,80 @@ skillsCmd
 
 skillsCmd
   .command('update')
-  .argument('[skills...]', 'Optional installed skill names or owner/repo@skill selectors')
+  .argument(
+    '[skills...]',
+    'Optional installed skill names or owner/repo@skill selectors',
+  )
   .option('--yes', 'Confirm risky remaps automatically')
-  .action(
-    async (identifiers: string[], flags: { yes?: boolean }) => {
-      await withService(async (service) => {
-        const previews = await service.updateProviderSkills(identifiers, {
-          apply: false,
-        });
-        if (previews.length === 0) {
-          console.log(`\n${symbols.info} No skills.sh installs found.\n`);
-          return;
-        }
-        printUpdates(previews);
-
-        const changed = previews.filter((preview) => preview.changed);
-        if (changed.length === 0) {
-          return;
-        }
-
-        if (!flags.yes) {
-          const confirmed = await promptToConfirm(
-            'Do you want to update these skills.sh installs? [y/N]',
-            changed.map((preview) => {
-              const selector =
-                typeof preview.install.metadata.providerSkillSelector === 'string'
-                  ? preview.install.metadata.providerSkillSelector
-                  : preview.install.name;
-              return `${selector}: ${preview.currentRevision?.slice(0, 7) ?? 'n/a'} -> ${preview.candidateRevision?.slice(0, 7) ?? 'n/a'}`;
-            }),
-          );
-          if (!confirmed) {
-            console.log(`\n${symbols.info} Update skipped.\n`);
-            return;
-          }
-        }
-
-        const applied = await service.updateProviderSkills(identifiers, {
-          apply: true,
-          yes: Boolean(flags.yes),
-        } satisfies UpdateOptions);
-        printUpdates(applied);
-        const updatedCount = applied.filter(
-          (preview) =>
-            preview.changed &&
-            preview.nextLinkTarget &&
-            !preview.warnings.includes('Skipped by user.'),
-        ).length;
-        console.log(
-          `\n${symbols.success} ${style.bold('Update complete')} ${style.gray(`(${updatedCount} skills.sh item(s) updated)`)}\n`,
-        );
+  .action(async (identifiers: string[], flags: { yes?: boolean }) => {
+    await withService(async (service) => {
+      const previews = await service.updateProviderSkills(identifiers, {
+        apply: false,
       });
-    },
-  );
+      if (previews.length === 0) {
+        console.log(`\n${symbols.info} No skills.sh installs found.\n`);
+        return;
+      }
+      printUpdates(previews);
 
-source
-  .command('add')
-  .argument('<locator>', 'Git URL, local folder, or registry index path')
-  .action(async (locator: string) => {
-    const result = await withService((service) => service.addSource(locator));
-    console.log(
-      `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
-    );
+      const changed = previews.filter((preview) => preview.changed);
+      if (changed.length === 0) {
+        return;
+      }
+
+      if (!flags.yes) {
+        const confirmed = await promptToConfirm(
+          'Do you want to update these skills.sh installs? [y/N]',
+          changed.map((preview) => {
+            const selector =
+              typeof preview.install.metadata.providerSkillSelector === 'string'
+                ? preview.install.metadata.providerSkillSelector
+                : preview.install.name;
+            return `${selector}: ${preview.currentRevision?.slice(0, 7) ?? 'n/a'} -> ${preview.candidateRevision?.slice(0, 7) ?? 'n/a'}`;
+          }),
+        );
+        if (!confirmed) {
+          console.log(`\n${symbols.info} Update skipped.\n`);
+          return;
+        }
+      }
+
+      const applied = await service.updateProviderSkills(identifiers, {
+        apply: true,
+        yes: Boolean(flags.yes),
+      } satisfies UpdateOptions);
+      printUpdates(applied);
+      const updatedCount = applied.filter(
+        (preview) =>
+          preview.changed &&
+          preview.nextLinkTarget &&
+          !preview.warnings.includes('Skipped by user.'),
+      ).length;
+      console.log(
+        `\n${symbols.success} ${style.bold('Update complete')} ${style.gray(`(${updatedCount} skills.sh item(s) updated)`)}\n`,
+      );
+    });
   });
+
+addExamples(
+  source
+    .command('add')
+    .argument(
+      '<locator>',
+      'Git locator, OWNER/REPO shorthand, local folder, or registry index path',
+    )
+    .action(async (locator: string) => {
+      const result = await withService((service) => service.addSource(locator));
+      console.log(
+        `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
+      );
+    }),
+  [
+    'agentpm source add travelhawk/skills-vault',
+    'agentpm source add git@github.com:company/private-skills.git',
+    'agentpm source add registry:https://registry.example.com/agentpm/index.yaml',
+  ],
+);
 
 source.command('list').action(async () => {
   const sources = await withService((service) =>
@@ -698,34 +745,41 @@ source.command('list').action(async () => {
   }
 });
 
-source
-  .command('skills')
-  .alias('entries')
-  .argument('[source]', 'Configured source id, locator, or a direct repo locator')
-  .option('--refresh', 'Refresh the configured source before listing')
-  .option('--target <target>', 'Filter entries for codex, claude, or generic')
-  .option('--json', 'Print machine-readable JSON')
-  .action(
-    async (
-      sourceToken: string | undefined,
-      flags: { refresh?: boolean; target?: string; json?: boolean },
-    ) => {
-      const result = await withService(
-        (service) =>
+addExamples(
+  source
+    .command('skills')
+    .alias('entries')
+    .argument(
+      '[source]',
+      'Configured source id, locator, or a direct repo locator',
+    )
+    .option('--refresh', 'Refresh the configured source before listing')
+    .option('--target <target>', 'Filter entries for codex, claude, or generic')
+    .option('--json', 'Print machine-readable JSON')
+    .action(
+      async (
+        sourceToken: string | undefined,
+        flags: { refresh?: boolean; target?: string; json?: boolean },
+      ) => {
+        const result = await withService((service) =>
           service.listSourceEntries(sourceToken, {
             ...(flags.refresh ? { refresh: true } : {}),
-            ...(flags.target
-              ? { target: resolveTarget(flags.target) }
-              : {}),
+            ...(flags.target ? { target: resolveTarget(flags.target) } : {}),
           }),
-      );
-      if (flags.json) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-      }
-      printSourceEntries(result);
-    },
-  );
+        );
+        if (flags.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        printSourceEntries(result);
+      },
+    ),
+  [
+    'agentpm source skills skills-vault',
+    'agentpm source skills travelhawk/skills-vault --target codex',
+    'agentpm source skills enterprise --refresh',
+  ],
+);
 
 source
   .command('remove')
@@ -737,22 +791,60 @@ source
     );
   });
 
-const targetCmd = program
-  .command('target')
-  .alias('targets')
-  .description('Manage global push targets');
+const targetCmd = addExamples(
+  program
+    .command('target')
+    .alias('targets')
+    .description('Manage global push targets'),
+  [
+    'agentpm target add origin travelhawk/skills-vault --default',
+    'agentpm target add https://github.com/travelhawk/skills-vault',
+    'agentpm target list',
+    'agentpm target default origin',
+  ],
+);
 
-targetCmd
-  .command('add')
-  .argument('<id>', 'Target ID')
-  .argument('<locator>', 'Target locator (Git URL or registry path)')
-  .option('--default', 'Make this the default push target')
-  .action(async (id: string, locator: string, flags: { default?: boolean }) => {
-    await withService((service) => service.addTarget(id, locator, flags.default));
-    console.log(
-      `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
-    );
-  });
+addExamples(
+  targetCmd
+    .command('add')
+    .usage('[id] <locator>')
+    .argument('<idOrLocator>', 'Target ID or target locator')
+    .argument(
+      '[locator]',
+      'Target locator (Git URL, OWNER/REPO shorthand, or registry path)',
+    )
+    .option('--default', 'Make this the default push target')
+    .action(
+      async (
+        idOrLocator: string,
+        locatorArg: string | undefined,
+        flags: { default?: boolean },
+      ) => {
+        const { id, locator } = await resolveTargetAddArgs(
+          idOrLocator,
+          locatorArg,
+          {
+            isInteractive: Boolean(process.stdout.isTTY && process.stdin.isTTY),
+            promptForId: (defaultId) =>
+              promptToInput('Target name', {
+                defaultValue: defaultId,
+                placeholder: 'short id',
+              }),
+          },
+        );
+        await withService((service) =>
+          service.addTarget(id, locator, flags.default),
+        );
+        console.log(
+          `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
+        );
+      },
+    ),
+  [
+    'agentpm target add origin travelhawk/skills-vault --default',
+    'agentpm target add https://github.com/travelhawk/skills-vault',
+  ],
+);
 
 targetCmd
   .command('default')
@@ -816,84 +908,99 @@ program
     },
   );
 
-program
-  .command('search')
-  .argument('<query>', 'Query text')
-  .option('--refresh', 'Refresh configured source indexes before searching')
-  .action(async (query: string, flags: { refresh?: boolean }) => {
-    const { results, sourceCount } = await withService(async (service) => {
-      if (flags.refresh) {
-        printRefreshResults(await service.refreshSources());
+addExamples(
+  program
+    .command('search')
+    .argument('<query>', 'Query text')
+    .option('--refresh', 'Refresh configured source indexes before searching')
+    .action(async (query: string, flags: { refresh?: boolean }) => {
+      const { results, sourceCount } = await withService(async (service) => {
+        if (flags.refresh) {
+          printRefreshResults(await service.refreshSources());
+        }
+        return {
+          results: service.search(query),
+          sourceCount: service.listSources().length,
+        };
+      });
+      if (results.length === 0) {
+        console.log('No matches found.');
+        if (sourceCount > 0 && !flags.refresh) {
+          console.log(
+            'Indexes may be stale; run `agentpm refresh` or `agentpm search --refresh`.',
+          );
+        }
+        return;
       }
-      return {
-        results: service.search(query),
-        sourceCount: service.listSources().length,
-      };
-    });
-    if (results.length === 0) {
-      console.log('No matches found.');
-      if (sourceCount > 0 && !flags.refresh) {
-        console.log(
-          'Indexes may be stale; run `agentpm refresh` or `agentpm search --refresh`.',
-        );
+      for (const result of results) {
+        console.log(`${result.kind}  ${result.name}  ${result.locator ?? ''}`);
       }
-      return;
-    }
-    for (const result of results) {
-      console.log(`${result.kind}  ${result.name}  ${result.locator ?? ''}`);
-    }
-  });
+    }),
+  ['agentpm search pdf', 'agentpm search pdf --refresh'],
+);
 
-program
-  .command('refresh')
-  .description('Refresh local indexes for configured sources')
-  .argument(
-    '[sources...]',
-    'Optional source ids, locators, or names to refresh',
-  )
-  .action(async (sources: string[]) => {
-    const results = await withService((service) =>
-      service.refreshSources(sources),
-    );
-    printRefreshResults(results);
-  });
+addExamples(
+  program
+    .command('refresh')
+    .description('Refresh local indexes for configured sources')
+    .argument(
+      '[sources...]',
+      'Optional source ids, locators, or names to refresh',
+    )
+    .action(async (sources: string[]) => {
+      const results = await withService((service) =>
+        service.refreshSources(sources),
+      );
+      printRefreshResults(results);
+    }),
+  ['agentpm refresh', 'agentpm refresh skills-vault enterprise'],
+);
 
-program
-  .command('install')
-  .alias('add')
-  .argument('[names...]', 'Skill names or source token for --all/--skill flows')
-  .option('--from <source>', 'Install from a configured source or direct repo locator')
-  .option('--add-source', 'Add a direct repo locator as a source before installing')
-  .option('--global', 'Install to the global native target')
-  .option('--project', 'Install to the current project')
-  .option('--workspace', 'Install to a workspace root')
-  .option('--workspace-root <path>', 'Explicit workspace root')
-  .option('--all', 'Install all entries from a source')
-  .option('--skill <name>', 'Select a specific skill name', collect, [])
-  .option('--ref <ref>', 'Git branch, tag, or revision')
-  .option(
-    '--target <target>',
-    'Install only entries for codex, claude, or generic',
-  )
-  .option('--yes', 'Accept safe install prompts automatically')
-  .action(
-    async (
-      names: string[],
-      flags: InstallOptions & {
-        from?: string;
-        addSource?: boolean;
-        global?: boolean;
-        project?: boolean;
-        workspace?: boolean;
-        workspaceRoot?: string;
-        skill?: string[];
-        ref?: string;
-        target?: string;
-        yes?: boolean;
-      },
-    ) => {
-      const installs = await withService(
-        (service) =>
+addExamples(
+  program
+    .command('install')
+    .alias('add')
+    .argument(
+      '[names...]',
+      'Skill names or source token for --all/--skill flows',
+    )
+    .option(
+      '--from <source>',
+      'Install from a configured source or direct repo locator',
+    )
+    .option(
+      '--add-source',
+      'Add a direct repo locator as a source before installing',
+    )
+    .option('--global', 'Install to the global native target')
+    .option('--project', 'Install to the current project')
+    .option('--workspace', 'Install to a workspace root')
+    .option('--workspace-root <path>', 'Explicit workspace root')
+    .option('--all', 'Install all entries from a source')
+    .option('--skill <name>', 'Select a specific skill name', collect, [])
+    .option('--ref <ref>', 'Git branch, tag, or revision')
+    .option(
+      '--target <target>',
+      'Install only entries for codex, claude, or generic',
+    )
+    .option('--yes', 'Accept safe install prompts automatically')
+    .action(
+      async (
+        names: string[],
+        flags: InstallOptions & {
+          from?: string;
+          addSource?: boolean;
+          global?: boolean;
+          project?: boolean;
+          workspace?: boolean;
+          workspaceRoot?: string;
+          skill?: string[];
+          ref?: string;
+          target?: string;
+          yes?: boolean;
+        },
+      ) => {
+        const installs = await withService((service) =>
           service.install(names, {
             scope: resolveScope(flags),
             workspaceRoot: flags.workspaceRoot,
@@ -905,15 +1012,20 @@ program
             addSource: flags.addSource,
             yes: flags.yes,
           }),
-      );
-      for (const install of installs) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
         );
-      }
-
-    },
-  );
+        for (const install of installs) {
+          console.log(
+            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+          );
+        }
+      },
+    ),
+  [
+    'agentpm install release-helper --project',
+    'agentpm install --from travelhawk/skills-vault --skill release-helper --project',
+    'agentpm install --from github:company/private-skills --all --target codex',
+  ],
+);
 
 program
   .command('update')
@@ -991,173 +1103,199 @@ program
     );
   });
 
-const cacheCmd = program.command('cache').description('Manage AgentPM cache');
+const cacheCmd = addExamples(
+  program.command('cache').description('Manage AgentPM cache'),
+  ['agentpm cache clean --dry-run'],
+);
 
-const cacheCleanCmd = cacheCmd
-  .command('clean')
-  .description(
-    'Remove unused Git checkout caches while preserving active installs and the search index',
-  )
-  .option('--dry-run', 'Show unused cache paths without deleting them');
+const cacheCleanCmd = addExamples(
+  cacheCmd
+    .command('clean')
+    .description(
+      'Remove unused Git checkout caches while preserving active installs and the search index',
+    )
+    .option('--dry-run', 'Show unused cache paths without deleting them'),
+  ['agentpm cache clean --dry-run', 'agentpm cache clean'],
+);
 
 cacheCleanCmd.action(async () => {
   const dryRun = Boolean(
     cacheCleanCmd.opts<{ dryRun?: boolean }>().dryRun ||
-      rawCliArgs.includes('--dry-run'),
+    rawCliArgs.includes('--dry-run'),
   );
   const result = await withService((service) => service.cleanCache({ dryRun }));
   printCacheCleanResult(result);
 });
 
-program
-  .command('push')
-  .argument(
-    '[pathOrName]',
-    'Skill name, relative path, or folder to push. Omit to choose interactively.',
-  )
-  .option('--to <target>', 'Target id or locator')
-  .option('-m, --message <message>', 'Commit message if changes exist')
-  .option('--all', 'Push all detected local skills or agents')
-  .option('--dry-run', 'Show what would be pushed without doing it')
-  .option(
-    '--preserve-layout',
-    'Keep native target-relative paths instead of normalizing to skills/<name>',
-  )
-  .action(
-    async (
-      pathArg: string | undefined,
-      flags: {
-        to?: string;
-        message?: string;
-        all?: boolean;
-        dryRun?: boolean;
-        preserveLayout?: boolean;
-      },
-    ) => {
-      const result = await withService((service) =>
-        service.push({
-          path: pathArg,
-          target: flags.to,
-          message: flags.message,
-          all: flags.all,
-          dryRun: flags.dryRun,
-          preserveLayout: flags.preserveLayout,
-        }),
-        {
-          statusMessages: true,
+addExamples(
+  program
+    .command('push')
+    .argument(
+      '[pathOrName]',
+      'Skill name, relative path, or folder to push. Omit to choose interactively.',
+    )
+    .option('--to <target>', 'Target id or locator')
+    .option('-m, --message <message>', 'Commit message if changes exist')
+    .option('--all', 'Push all detected local skills or agents')
+    .option('--dry-run', 'Show what would be pushed without doing it')
+    .option(
+      '--preserve-layout',
+      'Keep native target-relative paths instead of normalizing to skills/<name>',
+    )
+    .action(
+      async (
+        pathArg: string | undefined,
+        flags: {
+          to?: string;
+          message?: string;
+          all?: boolean;
+          dryRun?: boolean;
+          preserveLayout?: boolean;
         },
-      );
-      if (result.success) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`,
+      ) => {
+        const result = await withService(
+          (service) =>
+            service.push({
+              path: pathArg,
+              target: flags.to,
+              message: flags.message,
+              all: flags.all,
+              dryRun: flags.dryRun,
+              preserveLayout: flags.preserveLayout,
+            }),
+          {
+            statusMessages: true,
+          },
         );
-        for (const entry of result.entries) {
-          console.log(`  ${symbols.bullet} ${entry}`);
-        }
-        if (result.revision) {
+        if (result.success) {
           console.log(
-            `  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`,
+            `\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`,
           );
+          for (const entry of result.entries) {
+            console.log(`  ${symbols.bullet} ${entry}`);
+          }
+          if (result.revision) {
+            console.log(
+              `  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`,
+            );
+          }
+          for (const warning of result.warnings) {
+            console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+          }
+          console.log('');
         }
-        for (const warning of result.warnings) {
-          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
-        }
-        console.log('');
-      }
-    },
-  );
-
-program
-  .command('pull')
-  .description(
-    'Pull canonical skills from a target repo into your coding agents',
-  )
-  .argument('[skills...]', 'Skill names to pull. Omit to pull every skill.')
-  .option('--from <target>', 'Target id or locator to pull from')
-  .option(
-    '--target <agents>',
-    'Comma-separated agents to install into (codex,claude,generic). Default: auto-detect.',
-  )
-  .option('--project', 'Install into the current project instead of globally')
-  .option('--yes', 'Skip prompts and install to all detected agents')
-  .action(
-    async (
-      skills: string[],
-      flags: {
-        from?: string;
-        target?: string;
-        project?: boolean;
-        yes?: boolean;
       },
-    ) => {
-      const result = await withService(
-        (service) =>
-          service.pull({
-            skills,
-            target: flags.from,
-            agents: parseAgents(flags.target),
-            scope: flags.project ? 'project' : 'global',
-            yes: flags.yes,
-          }),
-        { statusMessages: true },
-      );
-      if (result.success) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Pulled from')} ${style.cyan(result.sourceLocator)}`,
-        );
-        for (const install of result.installs) {
-          console.log(
-            `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('→')} ${install.targetPath}`,
-          );
-        }
-        for (const warning of result.warnings) {
-          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
-        }
-        console.log('');
-      }
-    },
-  );
+    ),
+  [
+    'agentpm push --all',
+    'agentpm push skill-a --to travelhawk/skills-vault',
+    'agentpm push --all --preserve-layout',
+  ],
+);
 
-program
-  .command('adopt')
-  .description(
-    'Bring an existing local skill under AgentPM management and fan it out to other agents',
-  )
-  .argument('<skillOrPath>', 'Skill name or path to an existing skill directory')
-  .option(
-    '--target <agents>',
-    'Comma-separated agents to also install into (codex,claude,generic)',
-  )
-  .option('--yes', 'Skip prompts and install to all detected agents')
-  .action(
-    async (
-      token: string,
-      flags: { target?: string; yes?: boolean },
-    ) => {
-      const result = await withService(
-        (service) =>
-          service.adopt(token, {
-            agents: parseAgents(flags.target),
-            yes: flags.yes,
-          }),
-        { statusMessages: true },
-      );
-      if (result.success) {
-        console.log(
-          `\n${symbols.success} ${style.bold('Adopted')} ${style.green(result.name)} ${style.gray('→')} ${style.underline(result.libraryPath)}`,
+addExamples(
+  program
+    .command('pull')
+    .description(
+      'Pull canonical skills from a target repo into your coding agents',
+    )
+    .argument('[skills...]', 'Skill names to pull. Omit to pull every skill.')
+    .option('--from <target>', 'Target id or locator to pull from')
+    .option(
+      '--target <agents>',
+      'Comma-separated agents to install into (codex,claude,generic). Default: auto-detect.',
+    )
+    .option('--project', 'Install into the current project instead of globally')
+    .option('--yes', 'Skip prompts and install to all detected agents')
+    .action(
+      async (
+        skills: string[],
+        flags: {
+          from?: string;
+          target?: string;
+          project?: boolean;
+          yes?: boolean;
+        },
+      ) => {
+        const result = await withService(
+          (service) =>
+            service.pull({
+              skills,
+              target: flags.from,
+              agents: parseAgents(flags.target),
+              scope: flags.project ? 'project' : 'global',
+              yes: flags.yes,
+            }),
+          { statusMessages: true },
         );
-        for (const install of result.installs) {
+        if (result.success) {
           console.log(
-            `  ${symbols.bullet} ${install.adapter} ${style.gray('→')} ${install.targetPath}`,
+            `\n${symbols.success} ${style.bold('Pulled from')} ${style.cyan(result.sourceLocator)}`,
           );
+          for (const install of result.installs) {
+            console.log(
+              `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('→')} ${install.targetPath}`,
+            );
+          }
+          for (const warning of result.warnings) {
+            console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+          }
+          console.log('');
         }
-        for (const warning of result.warnings) {
-          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+      },
+    ),
+  [
+    'agentpm pull --from skills-vault',
+    'agentpm pull release-helper --from travelhawk/skills-vault --target codex,claude',
+  ],
+);
+
+addExamples(
+  program
+    .command('adopt')
+    .description(
+      'Bring an existing local skill under AgentPM management and fan it out to other agents',
+    )
+    .argument(
+      '<skillOrPath>',
+      'Skill name or path to an existing skill directory',
+    )
+    .option(
+      '--target <agents>',
+      'Comma-separated agents to also install into (codex,claude,generic)',
+    )
+    .option('--yes', 'Skip prompts and install to all detected agents')
+    .action(
+      async (token: string, flags: { target?: string; yes?: boolean }) => {
+        const result = await withService(
+          (service) =>
+            service.adopt(token, {
+              agents: parseAgents(flags.target),
+              yes: flags.yes,
+            }),
+          { statusMessages: true },
+        );
+        if (result.success) {
+          console.log(
+            `\n${symbols.success} ${style.bold('Adopted')} ${style.green(result.name)} ${style.gray('→')} ${style.underline(result.libraryPath)}`,
+          );
+          for (const install of result.installs) {
+            console.log(
+              `  ${symbols.bullet} ${install.adapter} ${style.gray('→')} ${install.targetPath}`,
+            );
+          }
+          for (const warning of result.warnings) {
+            console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+          }
+          console.log('');
         }
-        console.log('');
-      }
-    },
-  );
+      },
+    ),
+  [
+    'agentpm adopt my-claude-skill --target codex,generic',
+    'agentpm adopt .claude/skills/my-claude-skill',
+  ],
+);
 
 program.command('list').action(async () => {
   const installs = await withService((service) =>
@@ -1196,9 +1334,8 @@ program
   .option('--temp <name>', 'Add a temporary skill layer entry', collect, [])
   .option('--json', 'Print the resolved context graph as JSON')
   .action(async (flags: { temp?: string[]; json?: boolean }) => {
-    const graph = await withService(
-      (service) =>
-        service.resolveRuntimeContext({ temporarySkills: flags.temp ?? [] }),
+    const graph = await withService((service) =>
+      service.resolveRuntimeContext({ temporarySkills: flags.temp ?? [] }),
     );
     if (flags.json) {
       console.log(JSON.stringify(graph, null, 2));
@@ -1207,53 +1344,56 @@ program
     printRuntimeContext(graph);
   });
 
-program
-  .command('doctor')
-  .option('--fix', 'Interactively apply safe fixes for detected errors')
-  .action(async (flags: { fix?: boolean }) => {
-    await withService(async (service) => {
-      const issues = await service.doctor();
-      printDoctor(issues);
+addExamples(
+  program
+    .command('doctor')
+    .option('--fix', 'Interactively apply safe fixes for detected errors')
+    .action(async (flags: { fix?: boolean }) => {
+      await withService(async (service) => {
+        const issues = await service.doctor();
+        printDoctor(issues);
 
-      if (!flags.fix) {
-        return;
-      }
-
-      const errors = issues.filter((issue) => issue.severity === 'error');
-      if (errors.length === 0) {
-        console.log(`\n${symbols.success} No errors detected.\n`);
-        return;
-      }
-
-      const shouldPlan = await promptToConfirm(
-        'Errors detected. Would you like to attempt to fix these issues? [y/N]',
-      );
-      if (!shouldPlan) {
-        console.log(`\n${symbols.info} No fixes applied.\n`);
-        return;
-      }
-
-      const actions = await service.planDoctorFixes(issues);
-      printDoctorFixes(actions, issues);
-      if (actions.length === 0) {
-        return;
-      }
-
-      const shouldApply = await promptToConfirm('Apply these fixes? [y/N]');
-      if (!shouldApply) {
-        console.log(`\n${symbols.info} No fixes applied.\n`);
-        return;
-      }
-
-      const results = await service.applyDoctorFixes(actions);
-      for (const result of results) {
-        if (result.applied) {
-          console.log(`${symbols.success} ${result.action.description}`);
+        if (!flags.fix) {
+          return;
         }
-      }
-      console.log('');
-    });
-  });
+
+        const errors = issues.filter((issue) => issue.severity === 'error');
+        if (errors.length === 0) {
+          console.log(`\n${symbols.success} No errors detected.\n`);
+          return;
+        }
+
+        const shouldPlan = await promptToConfirm(
+          'Errors detected. Would you like to attempt to fix these issues? [y/N]',
+        );
+        if (!shouldPlan) {
+          console.log(`\n${symbols.info} No fixes applied.\n`);
+          return;
+        }
+
+        const actions = await service.planDoctorFixes(issues);
+        printDoctorFixes(actions, issues);
+        if (actions.length === 0) {
+          return;
+        }
+
+        const shouldApply = await promptToConfirm('Apply these fixes? [y/N]');
+        if (!shouldApply) {
+          console.log(`\n${symbols.info} No fixes applied.\n`);
+          return;
+        }
+
+        const results = await service.applyDoctorFixes(actions);
+        for (const result of results) {
+          if (result.applied) {
+            console.log(`${symbols.success} ${result.action.description}`);
+          }
+        }
+        console.log('');
+      });
+    }),
+  ['agentpm doctor', 'agentpm doctor --fix'],
+);
 
 try {
   await program.parseAsync(process.argv);

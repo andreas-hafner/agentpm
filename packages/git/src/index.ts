@@ -5,7 +5,12 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { ensureDir, pathExists } from '@agentpm/fs';
-import { AgentPmError, isGitRevision, type ContentKind } from '@agentpm/shared';
+import {
+  AgentPmError,
+  isGitRevision,
+  normalizeGitHubRepoLocator,
+  type ContentKind,
+} from '@agentpm/shared';
 import { simpleGit } from 'simple-git';
 
 export const DEFAULT_DISCOVERY_PATHS = [
@@ -58,7 +63,18 @@ function resolveGitEnv(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 async function toGitTransportLocator(locator: string): Promise<string> {
-  if (locator.includes('://') || locator.includes('@') || locator.endsWith('.git')) {
+  const normalizedGithub = normalizeGitHubRepoLocator(locator);
+  if (normalizedGithub.startsWith('github:')) {
+    return `https://github.com/${normalizedGithub
+      .slice('github:'.length)
+      .replace(/^\/+/, '')
+      .replace(/\.git$/i, '')}.git`;
+  }
+  if (
+    locator.includes('://') ||
+    locator.includes('@') ||
+    locator.endsWith('.git')
+  ) {
     const localPath = path.resolve(locator);
     if (await pathExists(localPath)) {
       return pathToFileURL(localPath).href;
@@ -102,7 +118,11 @@ export async function runGitCommand(
         resolve();
         return;
       }
-      reject(new AgentPmError(`git ${args[0] ?? 'command'} failed with exit code ${code ?? 'unknown'}`));
+      reject(
+        new AgentPmError(
+          `git ${args[0] ?? 'command'} failed with exit code ${code ?? 'unknown'}`,
+        ),
+      );
     });
   });
 
@@ -137,7 +157,9 @@ export async function resolveGitRevision(
   return revision;
 }
 
-export async function materializeGitRelease(options: GitReleaseOptions): Promise<GitRelease> {
+export async function materializeGitRelease(
+  options: GitReleaseOptions,
+): Promise<GitRelease> {
   await ensureDir(options.basePath);
   const transportLocator = await toGitTransportLocator(options.locator);
   const targetRevision =
@@ -158,9 +180,12 @@ export async function materializeGitRelease(options: GitReleaseOptions): Promise
     cloneArgs.push('--branch', options.ref);
   }
 
-  await runGitCommand(['clone', '--quiet', ...cloneArgs, transportLocator, releasePath], {
-    env: options.env,
-  });
+  await runGitCommand(
+    ['clone', '--quiet', ...cloneArgs, transportLocator, releasePath],
+    {
+      env: options.env,
+    },
+  );
 
   const repo = simpleGit(releasePath);
   if (options.sparsePaths.length > 0) {
@@ -168,17 +193,27 @@ export async function materializeGitRelease(options: GitReleaseOptions): Promise
     await repo.raw(['sparse-checkout', 'set', ...options.sparsePaths]);
   }
 
-  if (options.revision && isGitRevision(options.revision) && options.ref !== options.revision) {
-    await runGitCommand(['fetch', '--quiet', 'origin', options.revision, '--depth', '1'], {
-      cwd: releasePath,
-      env: options.env,
-    });
+  if (
+    options.revision &&
+    isGitRevision(options.revision) &&
+    options.ref !== options.revision
+  ) {
+    await runGitCommand(
+      ['fetch', '--quiet', 'origin', options.revision, '--depth', '1'],
+      {
+        cwd: releasePath,
+        env: options.env,
+      },
+    );
     await repo.checkout(['FETCH_HEAD']);
   } else if (options.ref && isGitRevision(options.ref)) {
-    await runGitCommand(['fetch', '--quiet', 'origin', options.ref, '--depth', '1'], {
-      cwd: releasePath,
-      env: options.env,
-    });
+    await runGitCommand(
+      ['fetch', '--quiet', 'origin', options.ref, '--depth', '1'],
+      {
+        cwd: releasePath,
+        env: options.env,
+      },
+    );
     await repo.checkout(['FETCH_HEAD']);
   } else {
     await repo.checkout(['HEAD']);
@@ -205,14 +240,28 @@ export async function createTemporaryGitRelease(
 }
 
 export function normalizeSparsePaths(paths: string[]): string[] {
-  return [...new Set(paths.map((entry) => entry.replace(/\\/g, '/').replace(/\/+$/, '')).filter(Boolean))].sort();
+  return [
+    ...new Set(
+      paths
+        .map((entry) => entry.replace(/\\/g, '/').replace(/\/+$/, ''))
+        .filter(Boolean),
+    ),
+  ].sort();
 }
 
-export async function cleanupTemporaryRelease(releasePath: string): Promise<void> {
+export async function cleanupTemporaryRelease(
+  releasePath: string,
+): Promise<void> {
   const root = path.dirname(path.dirname(releasePath));
   await fs.rm(root, { recursive: true, force: true });
 }
 
 export function inferContentKind(locator: string): ContentKind {
-  return locator.includes('://') || locator.endsWith('.git') || locator.includes('@') ? 'git' : 'local';
+  const normalizedGithub = normalizeGitHubRepoLocator(locator);
+  return normalizedGithub.includes('://') ||
+    normalizedGithub.endsWith('.git') ||
+    normalizedGithub.includes('@') ||
+    normalizedGithub.startsWith('github:')
+    ? 'git'
+    : 'local';
 }

@@ -2,8 +2,9 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
+import { inferContentKind } from '@agentpm/git';
 import { AgentPmService } from '@agentpm/core';
-import { classifyLocator } from '@agentpm/shared';
+import { classifyLocator, normalizeGitHubRepoLocator } from '@agentpm/shared';
 
 import {
   copyDir,
@@ -76,38 +77,85 @@ describe('inspect and search', () => {
     expect(classifyLocator('https://skillshub.wtf')).toBe('git');
   });
 
-  test('refresh rebuilds a git source index after repository changes', async () => {
+  test('treats bare owner/repo locators as git and normalizes them to github:', () => {
+    expect(classifyLocator('travelhawk/skills-vault')).toBe('git');
+    expect(normalizeGitHubRepoLocator('travelhawk/skills-vault')).toBe(
+      'github:travelhawk/skills-vault',
+    );
+    expect(inferContentKind('travelhawk/skills-vault')).toBe('git');
+  });
+
+  test('prefers an existing local owner/repo path over GitHub shorthand', async () => {
     const homeDir = await makeTempDir('agentpm-home-');
-    const repoDir = await makeTempDir('agentpm-git-source-');
-    await copyDir(path.join(fixturesRoot, 'codex'), repoDir);
-    initFixtureGitRepo(repoDir);
+    const workspaceDir = await makeTempDir('agentpm-workspace-');
+    await writeFile(
+      path.join(
+        workspaceDir,
+        'travelhawk',
+        'skills-vault',
+        'skills',
+        'local-skill',
+        'SKILL.md',
+      ),
+      '# Local Skill\n',
+    );
 
     const service = new AgentPmService({
-      cwd: repoDir,
+      cwd: workspaceDir,
       env: { AGENTPM_HOME: homeDir },
     });
     try {
-      await service.addSource(repoDir);
-      expect(service.search('new-skill')).toHaveLength(0);
-
-      await writeFile(
-        path.join(repoDir, '.codex', 'skills', 'new-skill', 'SKILL.md'),
-        '# New Skill\n',
+      const result = await service.addSource('travelhawk/skills-vault');
+      expect(result.source.kind).toBe('local');
+      expect(result.source.locator).toBe(
+        path.join(workspaceDir, 'travelhawk', 'skills-vault'),
       );
-      git(repoDir, 'add', '.');
-      git(repoDir, 'commit', '-m', 'add new skill');
-
-      const results = await service.refreshSources();
-      expect(results[0]?.indexedEntries).toBe(2);
       expect(
         service
-          .search('new-skill')
-          .some((result) => result.name === 'new-skill'),
+          .search('local-skill')
+          .some((entry) => entry.name === 'local-skill'),
       ).toBe(true);
     } finally {
       service.close();
     }
-  }, CI_TEST_TIMEOUT);
+  });
+
+  test(
+    'refresh rebuilds a git source index after repository changes',
+    async () => {
+      const homeDir = await makeTempDir('agentpm-home-');
+      const repoDir = await makeTempDir('agentpm-git-source-');
+      await copyDir(path.join(fixturesRoot, 'codex'), repoDir);
+      initFixtureGitRepo(repoDir);
+
+      const service = new AgentPmService({
+        cwd: repoDir,
+        env: { AGENTPM_HOME: homeDir },
+      });
+      try {
+        await service.addSource(repoDir);
+        expect(service.search('new-skill')).toHaveLength(0);
+
+        await writeFile(
+          path.join(repoDir, '.codex', 'skills', 'new-skill', 'SKILL.md'),
+          '# New Skill\n',
+        );
+        git(repoDir, 'add', '.');
+        git(repoDir, 'commit', '-m', 'add new skill');
+
+        const results = await service.refreshSources();
+        expect(results[0]?.indexedEntries).toBe(2);
+        expect(
+          service
+            .search('new-skill')
+            .some((result) => result.name === 'new-skill'),
+        ).toBe(true);
+      } finally {
+        service.close();
+      }
+    },
+    CI_TEST_TIMEOUT,
+  );
 
   test('detects plain skills folder repositories and install-script risk', async () => {
     const homeDir = await makeTempDir('agentpm-home-');

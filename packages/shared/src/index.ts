@@ -376,6 +376,13 @@ export interface PromptApi {
   selectOne?<T>(message: string, options: SelectOption<T>[]): Promise<T>;
   selectMany?<T>(message: string, options: SelectOption<T>[]): Promise<T[]>;
   confirm?(message: string, details?: string[]): Promise<boolean>;
+  input?(
+    message: string,
+    options?: {
+      defaultValue?: string | undefined;
+      placeholder?: string | undefined;
+    },
+  ): Promise<string>;
 }
 
 export interface RefreshSourceResult {
@@ -444,6 +451,14 @@ export function isGitSshLocator(value: string): boolean {
   return /^[^@\s]+@[^:\s]+:.+/i.test(value);
 }
 
+export function isGitHubRepoShorthand(value: string): boolean {
+  return /^[^./:\s~][^/:\s]*\/[^/\s]+$/.test(value.trim());
+}
+
+export function normalizeGitHubRepoLocator(value: string): string {
+  const trimmed = value.trim();
+  return isGitHubRepoShorthand(trimmed) ? `github:${trimmed}` : trimmed;
+}
 
 export function isGitRevision(value: string): boolean {
   return /^[0-9a-f]{7,40}$/i.test(value);
@@ -506,6 +521,7 @@ export function classifyLocator(locator: string): SourceKind {
     return 'registry';
   }
   if (
+    isGitHubRepoShorthand(normalized) ||
     isHttpUrl(normalized) ||
     normalized.startsWith('file://') ||
     isGitSshLocator(normalized) ||

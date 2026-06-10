@@ -8,6 +8,17 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.9.0] - 2026-06-10
+
+### Added
+
+- Bare GitHub repository shorthand such as `travelhawk/skills-vault` is now accepted anywhere AgentPM accepts Git source or target locators, and AgentPM now stores that shorthand canonically as `github:travelhawk/skills-vault`.
+- `agentpm target add` now accepts a locator without an explicit target id in interactive shells, then prompts for a target name with a default suggestion derived from the repository name.
+
+### Changed
+
+- `agentpm --help` keeps the overview examples, while subcommand `--help` pages now show examples tailored to the command being viewed instead of the same global example block.
+
 ## [0.8.0] - 2026-06-10
 
 ### Added
