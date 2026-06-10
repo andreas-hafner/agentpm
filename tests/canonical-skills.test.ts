@@ -100,6 +100,40 @@ describe('canonical skill library', () => {
     }
   }, CI_TEST_TIMEOUT);
 
+  test('push --all aborts when multiple native skills collapse into one canonical destination', async () => {
+    const projectDir = await makeTempDir('agentpm-canon-project-');
+    const remoteDir = await makeTempDir('agentpm-canon-remote-');
+    const remoteRepo = path.join(remoteDir, 'skills.git');
+
+    git(remoteDir, 'init', '--bare', remoteRepo);
+    await writeFile(
+      path.join(projectDir, '.codex', 'skills', 'shared-name', 'SKILL.md'),
+      '# codex variant\n',
+    );
+    await writeFile(
+      path.join(projectDir, '.claude', 'skills', 'shared-name', 'SKILL.md'),
+      '# claude variant\n',
+    );
+
+    const service = new AgentPmService({
+      cwd: projectDir,
+      env: { ...GIT_ENV, AGENTPM_HOME: await makeTempDir('agentpm-canon-home-') },
+    });
+    try {
+      await expect(
+        service.push({
+          target: remoteRepo,
+          all: true,
+          message: 'canonical push',
+        }),
+      ).rejects.toThrow(
+        /Multiple entries resolve to the same canonical push destination/,
+      );
+    } finally {
+      service.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
   test('pull materializes a canonical skill into multiple agents as symlinks to one library entry', async () => {
     const homeDir = await makeTempDir('agentpm-canon-home-');
     const projectDir = await makeTempDir('agentpm-canon-project-');
@@ -235,6 +269,41 @@ describe('canonical skill library', () => {
       expect(await realpath(genericLink)).toBe(
         await realpath(path.join(homeDir, 'skills', 'helper')),
       );
+    } finally {
+      service.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
+  test('adopt aborts before replacing a local skill when the library already has different contents', async () => {
+    const homeDir = await makeTempDir('agentpm-canon-home-');
+    const envDir = await makeTempDir('agentpm-canon-env-');
+
+    const libraryEntry = path.join(homeDir, 'skills', 'helper');
+    await writeFile(path.join(libraryEntry, 'SKILL.md'), '# library helper\n');
+
+    const originPath = path.join(envDir, '.claude', 'skills', 'helper');
+    await writeFile(path.join(originPath, 'SKILL.md'), '# local helper\n');
+
+    const service = new AgentPmService({
+      cwd: envDir,
+      env: { ...GIT_ENV, AGENTPM_HOME: homeDir },
+    });
+    try {
+      await expect(
+        service.adopt(originPath, {
+          agents: ['codex'],
+          yes: true,
+        }),
+      ).rejects.toThrow(/already exists in the AgentPM library/);
+
+      const originStats = await fs.lstat(originPath);
+      expect(originStats.isSymbolicLink()).toBe(false);
+      expect(await fs.readFile(path.join(originPath, 'SKILL.md'), 'utf8')).toContain(
+        '# local helper',
+      );
+      expect(
+        await fs.readFile(path.join(libraryEntry, 'SKILL.md'), 'utf8'),
+      ).toContain('# library helper');
     } finally {
       service.close();
     }

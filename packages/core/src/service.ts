@@ -1455,12 +1455,52 @@ export class AgentPmService {
     return [
       ...new Map(
         [...candidates, ...installedCandidates].map((candidate) => [
-          candidate.destinationRelativePath,
+          [
+            path.resolve(candidate.sourcePath),
+            candidate.destinationRelativePath,
+            candidate.adapter,
+            candidate.kind,
+          ].join('::'),
           candidate,
         ]),
       ).values(),
     ].sort((left, right) =>
       left.destinationRelativePath.localeCompare(right.destinationRelativePath),
+    );
+  }
+
+  private assertNoPushDestinationCollisions(
+    candidates: PushCandidate[],
+    context: string,
+  ): void {
+    const collisions = new Map<string, PushCandidate[]>();
+    for (const candidate of candidates) {
+      const existing =
+        collisions.get(candidate.destinationRelativePath) ?? [];
+      existing.push(candidate);
+      collisions.set(candidate.destinationRelativePath, existing);
+    }
+
+    const conflicting = [...collisions.entries()].filter(
+      ([, entries]) => entries.length > 1,
+    );
+    if (conflicting.length === 0) {
+      return;
+    }
+
+    const details = conflicting
+      .map(([destination, entries]) => {
+        const variants = entries
+          .map(
+            (entry) =>
+              `    - ${entry.adapter} ${entry.kind}: ${entry.sourceRelativePath}`,
+          )
+          .join('\n');
+        return `  - ${destination}\n${variants}`;
+      })
+      .join('\n');
+    throw new AgentPmError(
+      `Multiple entries resolve to the same canonical push destination while ${context}.\n\n${details}\n\nChoose one variant explicitly or re-run with --preserve-layout.`,
     );
   }
 
@@ -1481,6 +1521,10 @@ export class AgentPmService {
     }
 
     if (all) {
+      this.assertNoPushDestinationCollisions(
+        workspaceCandidates,
+        'pushing all detected entries',
+      );
       return workspaceCandidates;
     }
 
@@ -1545,7 +1589,7 @@ export class AgentPmService {
     }
 
     if (this.prompts.selectMany) {
-      return this.prompts.selectMany(
+      const selected = await this.prompts.selectMany(
         'Choose skills or agents to push:',
         workspaceCandidates.map((candidate) => ({
           label: candidate.name,
@@ -1553,6 +1597,11 @@ export class AgentPmService {
           description: `${candidate.adapter}  ${candidate.destinationRelativePath}`,
         })),
       );
+      this.assertNoPushDestinationCollisions(
+        selected,
+        'choosing entries to push',
+      );
+      return selected;
     }
 
     const available = workspaceCandidates
@@ -2129,9 +2178,32 @@ export class AgentPmService {
 
     if (await pathExists(libraryPath)) {
       if (!originIsLink) {
-        warnings.push(
-          `A skill named "${name}" already exists in the library; keeping the existing library copy as the source of truth.`,
-        );
+        const [originRevision, libraryRevision] = await Promise.all([
+          computeTreeSignature(contentPath),
+          computeTreeSignature(libraryPath),
+        ]);
+        if (originRevision !== libraryRevision) {
+          const message =
+            `A different skill named "${name}" already exists in the AgentPM library. ` +
+            'Aborting before replacing the local skill with the library copy.';
+          if (!options.yes && this.prompts.confirm) {
+            const shouldReplace = await this.prompts.confirm(message, [
+              `Library: ${libraryPath}`,
+              `Local: ${contentPath}`,
+            ]);
+            if (!shouldReplace) {
+              throw new AgentPmError(
+                `Adopt cancelled because "${name}" already exists in the library with different contents.`,
+              );
+            }
+          } else {
+            throw new AgentPmError(message);
+          }
+        } else {
+          warnings.push(
+            `A skill named "${name}" already exists in the library; the local files match, so AgentPM will relink to the existing library copy.`,
+          );
+        }
       }
     } else {
       this.reportStatus(`Moving "${name}" into the skill library...`);
