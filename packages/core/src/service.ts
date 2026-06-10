@@ -9,6 +9,7 @@ import {
   getAdapter,
   inspectRepository,
   listInstallableEntries,
+  nativeSkillRoot,
 } from '@agentpm/adapters';
 import {
   LOCAL_PROJECT_CONFIG_FILENAME,
@@ -60,6 +61,7 @@ import {
   type DoctorFixAction,
   type DoctorFixResult,
   type DoctorIssue,
+  type EntryKind,
   type InstallRecord,
   type InstallScope,
   type AdapterId,
@@ -73,6 +75,11 @@ import {
   type ManifestInstallSpec,
   type PushOptions,
   type PushResult,
+  type PullOptions,
+  type PullResult,
+  type AdoptOptions,
+  type AdoptResult,
+  type MaterializedSkillRecord,
   type RefreshSourceResult,
   type RuntimeContextEntry,
   type RuntimeContextGraph,
@@ -129,6 +136,7 @@ export interface AgentPmServiceOptions {
 interface ServicePaths {
   homeDir: string;
   cacheDir: string;
+  skillsLibraryDir: string;
   dbPath: string;
   globalConfigPath: string;
   manifestPath: string;
@@ -159,6 +167,7 @@ interface ConfiguredSourceBinding {
 interface PushCandidate {
   name: string;
   adapter: AdapterId;
+  kind: EntryKind;
   sourcePath: string;
   sourceRelativePath: string;
   destinationRelativePath: string;
@@ -253,6 +262,7 @@ export class AgentPmService {
     this.paths = {
       homeDir: agentPmHome,
       cacheDir: path.join(agentPmHome, 'cache'),
+      skillsLibraryDir: path.join(agentPmHome, 'skills'),
       dbPath: path.join(agentPmHome, 'agentpm.db'),
       globalConfigPath: path.join(agentPmHome, 'config.yaml'),
       manifestPath: path.join(this.cwd, PROJECT_CONFIG_FILENAME),
@@ -1213,7 +1223,11 @@ export class AgentPmService {
     await this.initialize();
     const loadedConfig = await loadProjectConfig(this.cwd);
     const target = await this.resolvePushTarget(options.target, loadedConfig);
-    const entries = await this.resolvePushCandidates(options.path, options.all);
+    const entries = await this.resolvePushCandidates(
+      options.path,
+      options.all,
+      options.preserveLayout ?? false,
+    );
 
     if (entries.length === 0) {
       return {
@@ -1386,31 +1400,57 @@ export class AgentPmService {
 
   private async discoverPushCandidates(
     rootPath: string,
+    preserveLayout = false,
   ): Promise<PushCandidate[]> {
+    // Canonical push normalizes skills to `skills/<name>` so remote
+    // repositories stay tidy and can be pulled into any agent. `preserveLayout`
+    // keeps the original native target-relative path. Agents and subagents
+    // always keep their native layout so the kind distinction is not lost.
+    const toDestination = (
+      name: string,
+      kind: EntryKind,
+      nativePath: string,
+    ): string =>
+      !preserveLayout && kind === 'skill'
+        ? toPosixPath(path.posix.join('skills', name))
+        : toPosixPath(nativePath);
+
     const report = await inspectRepository(rootPath, rootPath, 'local');
     const entries = listInstallableEntries(report);
     const candidates = entries.map((entry) => {
       return {
         name: entry.name,
         adapter: entry.adapter,
+        kind: entry.kind,
         sourcePath: path.join(rootPath, entry.relativePath),
         sourceRelativePath: entry.relativePath,
-        destinationRelativePath: entry.relativePath,
+        destinationRelativePath: toDestination(
+          entry.name,
+          entry.kind,
+          entry.relativePath,
+        ),
       } satisfies PushCandidate;
     });
 
     const installedCandidates = this.db
       .listInstalls()
       .filter((install) => path.resolve(install.scopeRoot) === rootPath)
-      .map((install) => ({
-        name: install.name,
-        adapter: install.adapter,
-        sourcePath: install.linkTarget,
-        sourceRelativePath: install.sourceRelativePath,
-        destinationRelativePath: toPosixPath(
-          path.relative(rootPath, install.targetPath),
-        ),
-      }));
+      .map((install) => {
+        const nativePath = path.relative(rootPath, install.targetPath);
+        const kind = this.inferKindFromNativePath(nativePath);
+        return {
+          name: install.name,
+          adapter: install.adapter,
+          kind,
+          sourcePath: install.linkTarget,
+          sourceRelativePath: install.sourceRelativePath,
+          destinationRelativePath: toDestination(
+            install.name,
+            kind,
+            nativePath,
+          ),
+        } satisfies PushCandidate;
+      });
 
     return [
       ...new Map(
@@ -1427,8 +1467,12 @@ export class AgentPmService {
   private async resolvePushCandidates(
     token: string | undefined,
     all = false,
+    preserveLayout = false,
   ): Promise<PushCandidate[]> {
-    const workspaceCandidates = await this.discoverPushCandidates(this.cwd);
+    const workspaceCandidates = await this.discoverPushCandidates(
+      this.cwd,
+      preserveLayout,
+    );
 
     if (workspaceCandidates.length === 0) {
       throw new AgentPmError(
@@ -1476,8 +1520,10 @@ export class AgentPmService {
       }
 
       if (await pathExists(resolvedPath)) {
-        const directCandidates =
-          await this.discoverPushCandidates(resolvedPath);
+        const directCandidates = await this.discoverPushCandidates(
+          resolvedPath,
+          preserveLayout,
+        );
         if (directCandidates.length > 0) {
           return directCandidates;
         }
@@ -1699,6 +1745,445 @@ export class AgentPmService {
     }).catch(() => {});
 
     return { repoPath, cacheKey };
+  }
+
+  // --- Canonical skill library: pull and adopt ---------------------------
+
+  private ensureSource(
+    kind: SourceKind,
+    locator: string,
+    displayName: string,
+  ): SourceRecord {
+    const id = makeId('src', kind, locator);
+    const existing = this.db.getSource(id);
+    if (existing) {
+      return existing;
+    }
+    const now = nowIso();
+    return this.db.upsertSource({
+      id,
+      kind,
+      locator,
+      normalizedLocator: locator,
+      displayName,
+      metadata: {},
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  private inferKindFromNativePath(nativePath: string): EntryKind {
+    const posix = toPosixPath(nativePath);
+    if (posix === 'subagents' || posix.startsWith('subagents/')) {
+      return 'subagent';
+    }
+    if (posix.includes('/agents/') || posix.startsWith('.claude/agents')) {
+      return 'agent';
+    }
+    return 'skill';
+  }
+
+  private async copyTreeInto(src: string, dest: string): Promise<void> {
+    await fs.rm(dest, { recursive: true, force: true });
+    const files = await walkFiles(src);
+    for (const file of files) {
+      const relative = path.relative(src, file);
+      const out = path.join(dest, relative);
+      await ensureDir(path.dirname(out));
+      await fs.copyFile(file, out);
+    }
+  }
+
+  private async detectInstalledAgents(scopeRoot: string): Promise<AdapterId[]> {
+    const probes: Array<[AdapterId, string]> = [
+      ['codex', '.codex'],
+      ['claude', '.claude'],
+      ['generic', '.agents'],
+    ];
+    const present: AdapterId[] = [];
+    for (const [adapter, dir] of probes) {
+      if (await pathExists(path.join(scopeRoot, dir))) {
+        present.push(adapter);
+      }
+    }
+    return present;
+  }
+
+  private async chooseAgentTargets(
+    scopeRoot: string,
+    explicit: AdapterId[] | undefined,
+    yes: boolean,
+  ): Promise<AdapterId[]> {
+    const all: AdapterId[] = ['codex', 'claude', 'generic'];
+    if (explicit && explicit.length > 0) {
+      return explicit;
+    }
+
+    const detected = await this.detectInstalledAgents(scopeRoot);
+    const candidates = detected.length > 0 ? detected : all;
+
+    if (yes || !this.prompts.selectMany || candidates.length === 1) {
+      return candidates;
+    }
+
+    const selected = await this.prompts.selectMany<AdapterId>(
+      'Select agents to install these skills into:',
+      candidates.map((adapter) => ({
+        label: adapter,
+        value: adapter,
+        description: nativeSkillRoot(adapter),
+      })),
+    );
+    return selected.length > 0 ? selected : candidates;
+  }
+
+  /**
+   * Resolve the workspace root and originating adapter for a native skill path
+   * such as `<root>/.claude/skills/<name>` or `<root>/skills/<name>`.
+   */
+  private resolveNativeScope(absPath: string): {
+    scopeRoot: string;
+    adapter: AdapterId;
+  } {
+    const segments = absPath.split(path.sep);
+    const baseAdapters: Record<string, AdapterId> = {
+      '.codex': 'codex',
+      '.codex.cloud': 'codex',
+      '.claude': 'claude',
+      '.agents': 'generic',
+    };
+    // Prefer an agent base directory (`.claude`, `.codex`, ...). It outranks the
+    // plain `skills`/`subagents` segment that may sit just below it.
+    for (let i = segments.length - 1; i >= 0; i -= 1) {
+      const segment = segments[i]!;
+      if (segment in baseAdapters) {
+        return {
+          scopeRoot: segments.slice(0, i).join(path.sep) || path.sep,
+          adapter: baseAdapters[segment]!,
+        };
+      }
+    }
+    // Otherwise fall back to a plain generic root not nested under a dot dir.
+    for (let i = segments.length - 1; i >= 1; i -= 1) {
+      const segment = segments[i]!;
+      if (segment === 'skills' || segment === 'subagents') {
+        return {
+          scopeRoot: segments.slice(0, i).join(path.sep) || path.sep,
+          adapter: 'generic',
+        };
+      }
+    }
+    return {
+      scopeRoot: path.dirname(path.dirname(absPath)),
+      adapter: 'generic',
+    };
+  }
+
+  /**
+   * Symlink one canonical library skill into each selected agent's native skill
+   * directory and persist an install record per agent. Every agent dir points
+   * at the same library entry, so there is a single source of truth.
+   */
+  private async linkSkillIntoAgents(params: {
+    name: string;
+    libraryPath: string;
+    agents: AdapterId[];
+    scope: InstallScope;
+    scopeRoot: string;
+    sourceId: string;
+    contentKind: ContentKind;
+    contentLocator: string;
+    contentRef: string | null;
+    installedRevision: string | null;
+    yes: boolean;
+    warnings: string[];
+  }): Promise<MaterializedSkillRecord[]> {
+    const results: MaterializedSkillRecord[] = [];
+    for (const adapter of params.agents) {
+      const targetRelativePath = toPosixPath(
+        path.join(nativeSkillRoot(adapter), params.name),
+      );
+      const targetPath = path.join(params.scopeRoot, targetRelativePath);
+      await ensureDir(path.dirname(targetPath));
+
+      // A pre-existing real (unmanaged) directory is the common case for adopt
+      // and pull. Never clobber it silently: confirm when interactive, skip
+      // otherwise, so one collision cannot abort the whole fan-out.
+      const existing = await fs.lstat(targetPath).catch(() => null);
+      if (existing && !existing.isSymbolicLink()) {
+        let replace = false;
+        if (!params.yes && this.prompts.confirm) {
+          replace = await this.prompts.confirm(
+            `"${targetPath}" already exists and is not managed by AgentPM. Replace it with a link to the library copy?`,
+            ['The existing files at that path will be removed.'],
+          );
+        }
+        if (!replace) {
+          params.warnings.push(
+            `Skipped ${adapter}: ${targetRelativePath} already exists and is not managed by AgentPM.`,
+          );
+          continue;
+        }
+        await fs.rm(targetPath, { recursive: true, force: true });
+      }
+
+      try {
+        await ensureManagedLink(targetPath, params.libraryPath);
+      } catch (error) {
+        params.warnings.push(
+          `Skipped ${adapter}: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        continue;
+      }
+
+      const installId = makeId(
+        'inst',
+        params.sourceId,
+        params.name,
+        params.scope,
+        params.scopeRoot,
+        adapter,
+      );
+      const saved = this.db.saveInstall({
+        id: installId,
+        name: params.name,
+        sourceId: params.sourceId,
+        catalogEntryId: null,
+        adapter,
+        scope: params.scope,
+        scopeRoot: params.scopeRoot,
+        targetPath,
+        linkTarget: params.libraryPath,
+        sourceRelativePath: toPosixPath(path.join('skills', params.name)),
+        sourceRootRelativePath: 'skills',
+        selectedItems: [params.name],
+        contentKind: params.contentKind,
+        contentLocator: params.contentLocator,
+        contentRef: params.contentRef,
+        cacheKey: null,
+        installedRevision: params.installedRevision,
+        layoutSignature: '',
+        metadata: { library: true },
+        createdAt: nowIso(),
+        updatedAt: nowIso(),
+      });
+      await this.recordGeneratedTargetInLocalGitExclude(saved);
+      await this.ensureGitignored(params.scopeRoot, targetPath, params.yes);
+      results.push({ name: params.name, adapter, targetPath });
+    }
+    return results;
+  }
+
+  async pull(options: PullOptions = {}): Promise<PullResult> {
+    await this.initialize();
+    const loadedConfig = await loadProjectConfig(this.cwd);
+    const target = await this.resolvePushTarget(options.target, loadedConfig);
+    if (target.kind === 'registry') {
+      throw new AgentPmError('Pulling from a registry target is not supported.');
+    }
+
+    const scope: InstallScope = options.scope ?? 'global';
+    const scopeRoot = scope === 'project' ? this.cwd : os.homedir();
+    const warnings: string[] = [];
+
+    this.reportStatus('Fetching the canonical skills repository...');
+    const { repoPath } = await this.preparePushTargetRepository(target.locator);
+    const revision = (
+      await runGitCommand(['rev-parse', 'HEAD'], {
+        cwd: repoPath,
+        env: this.env,
+        captureStdout: true,
+      }).catch(() => ({ stdout: '' }))
+    ).stdout.trim() || null;
+
+    const report = await inspectRepository(repoPath, target.locator, 'git');
+    const available = listInstallableEntries(report).filter(
+      (entry) => entry.kind === 'skill',
+    );
+    if (available.length === 0) {
+      throw new AgentPmError(
+        `No canonical skills were found in ${target.locator}.`,
+      );
+    }
+
+    const requested = options.skills?.filter((name) => name.length > 0) ?? [];
+    const selected =
+      requested.length > 0
+        ? available.filter((entry) => requested.includes(entry.name))
+        : available;
+
+    if (selected.length === 0) {
+      throw new AgentPmError(
+        `None of the requested skills were found. Available: ${available
+          .map((entry) => entry.name)
+          .join(', ')}`,
+      );
+    }
+
+    const agents = await this.chooseAgentTargets(
+      scopeRoot,
+      options.agents,
+      options.yes ?? false,
+    );
+    if (agents.length === 0) {
+      return {
+        success: true,
+        sourceLocator: target.locator,
+        revision,
+        skills: [],
+        installs: [],
+        warnings: ['No agents selected.'],
+      };
+    }
+
+    const source = this.ensureSource(
+      'git',
+      target.locator,
+      displayNameFromLocator(target.locator),
+    );
+
+    const installs: MaterializedSkillRecord[] = [];
+    const pulledSkills: string[] = [];
+    for (const entry of selected) {
+      const libraryPath = path.join(this.paths.skillsLibraryDir, entry.name);
+      this.reportStatus(`Updating "${entry.name}" in the skill library...`);
+      await this.copyTreeInto(
+        path.join(repoPath, entry.relativePath),
+        libraryPath,
+      );
+      pulledSkills.push(entry.name);
+
+      const materialized = await this.linkSkillIntoAgents({
+        name: entry.name,
+        libraryPath,
+        agents,
+        scope,
+        scopeRoot,
+        sourceId: source.id,
+        contentKind: 'git',
+        contentLocator: target.locator,
+        contentRef: revision,
+        installedRevision: revision,
+        yes: options.yes ?? false,
+        warnings,
+      });
+      installs.push(...materialized);
+    }
+
+    return {
+      success: true,
+      sourceLocator: target.locator,
+      revision,
+      skills: pulledSkills,
+      installs,
+      warnings,
+    };
+  }
+
+  async adopt(token: string, options: AdoptOptions = {}): Promise<AdoptResult> {
+    await this.initialize();
+    const warnings: string[] = [];
+
+    // Resolve the existing skill either from an explicit directory path or by
+    // name within the current workspace.
+    const resolvedPath = path.resolve(this.cwd, token);
+    let name: string;
+    let contentPath: string;
+    let originAdapter: AdapterId;
+    let scopeRoot: string;
+
+    const resolvedStat = await fs.lstat(resolvedPath).catch(() => null);
+    if (resolvedStat?.isDirectory() || resolvedStat?.isSymbolicLink()) {
+      name = path.basename(resolvedPath);
+      contentPath = resolvedPath;
+      const native = this.resolveNativeScope(resolvedPath);
+      originAdapter = native.adapter;
+      scopeRoot = native.scopeRoot;
+    } else {
+      const report = await inspectRepository(this.cwd, this.cwd, 'local');
+      const match = listInstallableEntries(report).find(
+        (entry) => entry.name === token,
+      );
+      if (!match) {
+        throw new AgentPmError(
+          `Could not find a skill named "${token}" in ${this.cwd}. Pass a path to the skill directory instead.`,
+        );
+      }
+      name = match.name;
+      contentPath = path.join(this.cwd, match.relativePath);
+      originAdapter = match.adapter;
+      scopeRoot = this.cwd;
+    }
+
+    // Fan-out lands beside the origin: all agents share the same environment so
+    // a skill adopted from `~/.claude` also appears in `~/.codex`, etc.
+    const scope: InstallScope =
+      path.resolve(scopeRoot) === path.resolve(os.homedir())
+        ? 'global'
+        : 'project';
+    const effectiveScopeRoot = scopeRoot;
+
+    const libraryPath = path.join(this.paths.skillsLibraryDir, name);
+    const originStat = await fs.lstat(contentPath).catch(() => null);
+    const originIsLink = originStat?.isSymbolicLink() ?? false;
+
+    if (await pathExists(libraryPath)) {
+      if (!originIsLink) {
+        warnings.push(
+          `A skill named "${name}" already exists in the library; keeping the existing library copy as the source of truth.`,
+        );
+      }
+    } else {
+      this.reportStatus(`Moving "${name}" into the skill library...`);
+      await this.copyTreeInto(contentPath, libraryPath);
+    }
+
+    // Replace the original location with a managed symlink into the library so
+    // there is no duplicated content.
+    if (!originIsLink) {
+      await fs.rm(contentPath, { recursive: true, force: true });
+      await ensureManagedLink(contentPath, libraryPath);
+    }
+
+    const source = this.ensureSource(
+      'local',
+      this.paths.skillsLibraryDir,
+      'AgentPM skill library',
+    );
+    const revision = await computeTreeSignature(libraryPath);
+
+    // Always record the origin agent, plus any chosen additional agents.
+    const requestedAgents = await this.chooseAgentTargets(
+      effectiveScopeRoot,
+      options.agents,
+      options.yes ?? false,
+    );
+    const agents = Array.from(
+      new Set<AdapterId>([originAdapter, ...requestedAgents]),
+    );
+
+    const installs = await this.linkSkillIntoAgents({
+      name,
+      libraryPath,
+      agents,
+      scope,
+      scopeRoot: effectiveScopeRoot,
+      sourceId: source.id,
+      contentKind: 'local',
+      contentLocator: libraryPath,
+      contentRef: null,
+      installedRevision: revision,
+      yes: options.yes ?? false,
+      warnings,
+    });
+
+    return {
+      success: true,
+      name,
+      libraryPath,
+      installs,
+      warnings,
+    };
   }
 
   async resolveRuntimeContext(

@@ -9,8 +9,31 @@ import {
 } from '@agentpm/core';
 import { createPromptApi, promptToConfirm } from '@agentpm/ui';
 
+type AgentId = 'codex' | 'claude' | 'generic';
+
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
+}
+
+const KNOWN_AGENTS: AgentId[] = ['codex', 'claude', 'generic'];
+
+function parseAgents(value: string | undefined): AgentId[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const requested = value
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+  const invalid = requested.filter(
+    (part) => !KNOWN_AGENTS.includes(part as AgentId),
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `Unknown agent(s): ${invalid.join(', ')}. Use one of: ${KNOWN_AGENTS.join(', ')}.`,
+    );
+  }
+  return requested as AgentId[];
 }
 
 const BRAND_LINES = [
@@ -996,6 +1019,10 @@ program
   .option('-m, --message <message>', 'Commit message if changes exist')
   .option('--all', 'Push all detected local skills or agents')
   .option('--dry-run', 'Show what would be pushed without doing it')
+  .option(
+    '--preserve-layout',
+    'Keep native target-relative paths instead of normalizing to skills/<name>',
+  )
   .action(
     async (
       pathArg: string | undefined,
@@ -1004,6 +1031,7 @@ program
         message?: string;
         all?: boolean;
         dryRun?: boolean;
+        preserveLayout?: boolean;
       },
     ) => {
       const result = await withService((service) =>
@@ -1013,6 +1041,7 @@ program
           message: flags.message,
           all: flags.all,
           dryRun: flags.dryRun,
+          preserveLayout: flags.preserveLayout,
         }),
         {
           statusMessages: true,
@@ -1028,6 +1057,98 @@ program
         if (result.revision) {
           console.log(
             `  ${symbols.bullet} Revision: ${style.bold(result.revision.slice(0, 12))}`,
+          );
+        }
+        for (const warning of result.warnings) {
+          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+        }
+        console.log('');
+      }
+    },
+  );
+
+program
+  .command('pull')
+  .description(
+    'Pull canonical skills from a target repo into your coding agents',
+  )
+  .argument('[skills...]', 'Skill names to pull. Omit to pull every skill.')
+  .option('--from <target>', 'Target id or locator to pull from')
+  .option(
+    '--target <agents>',
+    'Comma-separated agents to install into (codex,claude,generic). Default: auto-detect.',
+  )
+  .option('--project', 'Install into the current project instead of globally')
+  .option('--yes', 'Skip prompts and install to all detected agents')
+  .action(
+    async (
+      skills: string[],
+      flags: {
+        from?: string;
+        target?: string;
+        project?: boolean;
+        yes?: boolean;
+      },
+    ) => {
+      const result = await withService(
+        (service) =>
+          service.pull({
+            skills,
+            target: flags.from,
+            agents: parseAgents(flags.target),
+            scope: flags.project ? 'project' : 'global',
+            yes: flags.yes,
+          }),
+        { statusMessages: true },
+      );
+      if (result.success) {
+        console.log(
+          `\n${symbols.success} ${style.bold('Pulled from')} ${style.cyan(result.sourceLocator)}`,
+        );
+        for (const install of result.installs) {
+          console.log(
+            `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('→')} ${install.targetPath}`,
+          );
+        }
+        for (const warning of result.warnings) {
+          console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+        }
+        console.log('');
+      }
+    },
+  );
+
+program
+  .command('adopt')
+  .description(
+    'Bring an existing local skill under AgentPM management and fan it out to other agents',
+  )
+  .argument('<skillOrPath>', 'Skill name or path to an existing skill directory')
+  .option(
+    '--target <agents>',
+    'Comma-separated agents to also install into (codex,claude,generic)',
+  )
+  .option('--yes', 'Skip prompts and install to all detected agents')
+  .action(
+    async (
+      token: string,
+      flags: { target?: string; yes?: boolean },
+    ) => {
+      const result = await withService(
+        (service) =>
+          service.adopt(token, {
+            agents: parseAgents(flags.target),
+            yes: flags.yes,
+          }),
+        { statusMessages: true },
+      );
+      if (result.success) {
+        console.log(
+          `\n${symbols.success} ${style.bold('Adopted')} ${style.green(result.name)} ${style.gray('→')} ${style.underline(result.libraryPath)}`,
+        );
+        for (const install of result.installs) {
+          console.log(
+            `  ${symbols.bullet} ${install.adapter} ${style.gray('→')} ${install.targetPath}`,
           );
         }
         for (const warning of result.warnings) {

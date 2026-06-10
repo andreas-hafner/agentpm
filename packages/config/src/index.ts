@@ -36,6 +36,7 @@ export const LOCAL_PROJECT_CONFIG_FILENAME = '.agentpmrc';
 export interface AgentPmPaths {
   homeDir: string;
   cacheDir: string;
+  skillsLibraryDir: string;
   dbPath: string;
   globalConfigPath: string;
   manifestPath: string;
@@ -49,6 +50,9 @@ export function resolveAgentPmPaths(
   return {
     homeDir,
     cacheDir: path.join(homeDir, 'cache'),
+    // Canonical local skill library: the single source of truth that every
+    // agent's native skill directory symlinks back to.
+    skillsLibraryDir: path.join(homeDir, 'skills'),
     dbPath: path.join(homeDir, 'agentpm.db'),
     globalConfigPath: path.join(homeDir, 'config.yaml'),
     manifestPath: path.join(cwd, PROJECT_CONFIG_FILENAME),
@@ -62,6 +66,7 @@ export async function ensureAgentPmHome(
   const paths = resolveAgentPmPaths(cwd, env);
   await ensureDir(paths.homeDir);
   await ensureDir(paths.cacheDir);
+  await ensureDir(paths.skillsLibraryDir);
   return paths;
 }
 
