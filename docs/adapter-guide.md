@@ -4,9 +4,24 @@ AgentPM adapters translate repository layouts into installable native targets.
 
 ## Built-in adapters
 
-- `codex`: detects `.codex/skills/*` and `.codex.cloud/skills/*`, then installs back into the detected native root.
-- `claude`: detects `.claude/agents/*` and installs back into `.claude/agents`.
-- `generic`: detects `skills/*`, `.agents/skills/*`, and `subagents/*`; plain `skills/*` sources install into `.agents/skills/*`, while already-native `.agents/skills/*` and `subagents/*` roots are preserved.
+- `codex`: detects `.codex/skills/*` and `.codex.cloud/skills/*`; skills install into `.codex/skills/*`.
+- `claude`: detects `.claude/skills/*` (skills) and `.claude/agents/*` (agents); skills install into `.claude/skills/*`, agents into `.claude/agents`.
+- `generic`: detects `skills/*`, `.agents/skills/*`, and `subagents/*`; skills install into `.agents/skills/*`, while already-native `subagents/*` agent roots are preserved.
+
+## Canonical skills vs. agents
+
+Skills follow a **canonical + transform** model. A skill is always materialized into the
+chosen agent's native skill root, regardless of where it came from:
+
+| Target (`--target`) | Native skill root      |
+| ------------------- | ---------------------- |
+| `codex`             | `.codex/skills/<name>` |
+| `claude`            | `.claude/skills/<name>`|
+| `generic`           | `.agents/skills/<name>`|
+
+This is what lets one canonical `skills/<name>` entry fan out to every agent. Nested skill
+collections keep their sub-path under the chosen root. Agents and subagents still preserve
+their native layout (`target` only selects a matching layout for those kinds).
 
 In `agentpm.yaml`, use `target` to select one of these native layouts:
 
@@ -19,7 +34,9 @@ skills:
       - audio-mastering
 ```
 
-`target` is a selector, not a transformer. A Codex target requires a Codex-compatible detected entry; AgentPM does not rewrite a Claude agent into a Codex skill.
+For skills, `target` selects the native skill root the skill is transformed into (see the
+table above). For agents and subagents, `target` remains a selector that requires a
+compatible detected entry; AgentPM does not rewrite an agent into a different agent format.
 
 ## Adapter contract
 

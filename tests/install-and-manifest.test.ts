@@ -928,7 +928,7 @@ describe('install and manifest flows', () => {
     }
   });
 
-  test('pushes a selected workspace skill to its native subfolder in an empty target repository', async () => {
+  test('pushes a selected workspace skill into the canonical skills/ folder of an empty target repository', async () => {
     const projectDir = await makeTempDir('agentpm-push-project-');
     const remoteDir = await makeTempDir('agentpm-push-remote-');
     const remoteRepo = path.join(remoteDir, 'skills.git');
@@ -966,12 +966,12 @@ describe('install and manifest flows', () => {
 
       expect(result.success).toBe(true);
       expect(result.revision).toMatch(/^[0-9a-f]{40}$/);
-      expect(result.entries).toEqual(['.agents/skills/skill-a']);
+      expect(result.entries).toEqual(['skills/skill-a']);
 
       git(remoteDir, 'clone', remoteRepo, verifyDir);
       expect(
         await fs.readFile(
-          path.join(verifyDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+          path.join(verifyDir, 'skills', 'skill-a', 'SKILL.md'),
           'utf8',
         ),
       ).toContain('# pushed skill');
@@ -1023,18 +1023,18 @@ describe('install and manifest flows', () => {
         message: 'Push selected skill',
       });
 
-      expect(result.entries).toEqual(['.codex/skills/skill-b']);
+      expect(result.entries).toEqual(['skills/skill-b']);
 
       git(remoteDir, 'clone', remoteRepo, verifyDir);
       expect(
         await fs.readFile(
-          path.join(verifyDir, '.codex', 'skills', 'skill-b', 'SKILL.md'),
+          path.join(verifyDir, 'skills', 'skill-b', 'SKILL.md'),
           'utf8',
         ),
       ).toContain('# skill b');
       expect(
         await fs
-          .stat(path.join(verifyDir, '.agents', 'skills', 'skill-a'))
+          .stat(path.join(verifyDir, 'skills', 'skill-a'))
           .catch(() => null),
       ).toBeNull();
     } finally {
@@ -1099,7 +1099,7 @@ describe('install and manifest flows', () => {
       git(remoteDir, 'clone', remoteRepo, verifyDir);
       expect(
         await fs.readFile(
-          path.join(verifyDir, '.agents', 'skills', 'skill-a', 'SKILL.md'),
+          path.join(verifyDir, 'skills', 'skill-a', 'SKILL.md'),
           'utf8',
         ),
       ).toContain('# version two');

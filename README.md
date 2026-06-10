@@ -47,7 +47,8 @@ AgentPM works in two modes:
 - 🔒 **Private-first sources**: use public GitHub, private Git/SSH, local folders, static registries, and private HTTP registry indexes.
 - 🔎 **Public discovery bridge**: run `agentpm skills search`, `install`, `list`, `update`, and `remove` through the official `npx skills`.
 - 🧩 **Native runtime layouts**: target `codex`, `claude`, and `generic` directories without converting source repositories.
-- 📦 **Repository inspection**: detect `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`.
+- 📦 **Repository inspection**: detect `.codex/skills`, `.codex.cloud/skills`, `.claude/skills`, `.claude/agents`, `.agents/skills`, plain `skills`, and `subagents`.
+- 🔁 **Canonical cross-device sync**: `agentpm push` publishes a tidy `skills/<name>` form, `agentpm pull` materializes it into every coding agent via one symlinked library, and `agentpm adopt` brings existing skills under management.
 - ♻️ **Fresh indexes**: rebuild local source indexes on `source add`, `agentpm refresh`, or `agentpm update --refresh`.
 - 🛠️ **One-command installs**: run `agentpm install --from <repo-or-source>` when you already know where the skill lives.
 - 🧪 **Diagnostics and cleanup**: use `agentpm doctor --fix` and `agentpm cache clean --dry-run` for conservative maintenance.
@@ -163,17 +164,56 @@ agentpm doctor --fix
 agentpm target add production git@github.com:my-org/my-skills.git --default
 agentpm push skill-a --to git@github.com:my-org/my-skills.git
 agentpm push --all --to git@github.com:my-org/my-skills.git
+agentpm push --all --preserve-layout
+agentpm pull --from git@github.com:my-org/my-skills.git
+agentpm pull my-skill --target codex,claude
+agentpm adopt my-claude-skill --target codex,generic
 ```
 
-## Git Push Flows
+## Canonical skills: push, pull, and adopt
+
+AgentPM keeps a **canonical skill library** at `~/.agentpm/skills/` (under `AGENTPM_HOME`).
+It is the single source of truth on each machine: every agent's native skill directory is a
+symlink back to the library, so a skill is stored once and an update propagates to all agents.
+
+This enables a cross-device workflow:
+
+```bash
+# On device A: publish your skills in canonical form to a Git repo.
+agentpm target add my-skills git@github.com:me/skills.git --default
+agentpm push --all
+
+# On device B: pull them into all your coding agents.
+agentpm pull
+```
+
+### `agentpm push` — publish in canonical form
 
 `agentpm push` is a skill push command, not a raw repository mirror.
 
-- AgentPM detects pushable local entries from native layouts such as `.agents/skills`, `.codex/skills`, `.codex.cloud/skills`, `.claude/agents`, plain `skills/`, and `subagents/`.
+- AgentPM detects pushable local entries from native layouts such as `.agents/skills`, `.codex/skills`, `.codex.cloud/skills`, `.claude/skills`, `.claude/agents`, plain `skills/`, and `subagents/`.
 - If you omit the name or path in a TTY session, AgentPM shows an interactive selector. Use Space to toggle, `a` to select all, `n` to select none, and Enter to confirm.
 - If multiple push targets exist and none is marked `default`, `agentpm push` lets TTY users choose one and save it as the default in global AgentPM config. Non-interactive runs should pass `--to <target>` or set a default with `agentpm target default <id>`.
-- Pushed entries keep their native target-relative path inside the destination repository. A Codex skill stays under `.codex/skills/...`, a generic skill stays under `.agents/skills/...`, and nested collections keep their subfolders.
+- **By default, pushed entries are normalized to a canonical `skills/<name>` folder** in the destination repository, regardless of their source layout. This keeps shared repos tidy and lets the same repo be pulled into any agent. Pass `--preserve-layout` to keep native target-relative paths (`.codex/skills/...`, `.claude/...`) instead.
 - The target repository can be empty. AgentPM reuses a cached checkout for repeat pushes, copies the selected entries into place, commits, and pushes `HEAD`.
+
+### `agentpm pull` — install canonical skills into your agents
+
+`agentpm pull [skills...] --from <target>` fetches the canonical `skills/*` from a target
+repository, stores them in the library, and symlinks them into your coding agents.
+
+- AgentPM auto-detects which agents are present (`.codex`, `.claude`, `.agents`) and shows a multi-select defaulting to all detected. Pass `--target codex,claude,generic` to choose explicitly, or `--yes` to skip the prompt and install to all detected.
+- Skills install globally (into your home agent dirs) by default; pass `--project` to install into the current repository instead.
+- If a target agent already has an unmanaged skill of the same name, AgentPM asks before replacing it (and skips it in non-interactive `--yes` runs) so it never clobbers existing work — one collision does not abort the rest of the fan-out.
+- To later publish edits back with `agentpm push`, run `push` from the scope you pulled into (your home directory for a global pull).
+
+### `agentpm adopt` — manage an existing skill
+
+`agentpm adopt <skillOrPath>` brings a skill that already lives in one agent (for example a
+Claude skill under `.claude/skills/...`) under AgentPM management. It moves the content into
+the library, replaces the original with a managed symlink, and fans the skill out to your
+other agents (auto-detected, with the same `--target`/`--yes` options as `pull`). After
+adopting, `agentpm push` can publish it to your canonical repository.
 
 ## Docs
 

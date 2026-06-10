@@ -51,6 +51,12 @@ const LAYOUTS: LayoutDefinition[] = [
   },
   {
     adapter: 'claude',
+    label: 'Claude skills',
+    relativeRoot: '.claude/skills',
+    kind: 'skill',
+  },
+  {
+    adapter: 'claude',
     label: 'Claude agents',
     relativeRoot: '.claude/agents',
     kind: 'agent',
@@ -80,6 +86,18 @@ const LAYOUTS: LayoutDefinition[] = [
     kind: 'skill',
   },
 ];
+
+// Native skill directory per agent. Skills are transformed into the chosen
+// agent's root on install/pull (canonical + transform model).
+const SKILL_ROOTS: Record<AdapterId, string> = {
+  codex: '.codex/skills',
+  claude: '.claude/skills',
+  generic: '.agents/skills',
+};
+
+export function nativeSkillRoot(adapter: AdapterId): string {
+  return SKILL_ROOTS[adapter];
+}
 
 const SCRIPT_PATTERNS = [/^install\.(sh|ps1|js|mjs|cjs|ts)$/i];
 const ENTRY_MARKERS: Record<DetectedGroup['kind'], string[]> = {
@@ -266,29 +284,59 @@ function createAdapter(id: AdapterId): SkillAdapter {
       return buildCompatibility(id, report.groups);
     },
     async install(entry: DetectedEntry, scopeRoot: string): Promise<InstallMapping> {
-      // Find the best target layout in the project
-      const targetGroups = (await Promise.all(ADAPTERS.map(a => a.detect(scopeRoot)))).flat();
-      const bestGroup = targetGroups.find(g => g.kind === entry.kind && g.adapter === id)
-        ?? targetGroups.find(g => g.kind === entry.kind);
+      const sourceRootRelativePath =
+        entry.relativePath === '.'
+          ? ''
+          : entry.relativePath.split('/').slice(0, -1).join('/');
 
-      // Default relative root based on the current adapter ID and entry kind
-      const defaultRelativeRoots: Record<AdapterId, Partial<Record<DetectedGroup['kind'], string>>> = {
-        codex: {
-          skill: '.agents/skills',
-        },
+      // Skills follow the canonical + transform model: a skill is always
+      // materialized into the chosen agent's native skill directory, regardless
+      // of the source layout. This is what lets one canonical `skills/<name>`
+      // entry fan out to codex, claude, and generic agents.
+      if (entry.kind === 'skill') {
+        // Preserve any nested collection sub-path (e.g. `.curated/openai-docs`)
+        // under the chosen agent's skill root while still transforming the root.
+        const subPath =
+          entry.rootRelativePath && entry.rootRelativePath !== '.'
+            ? entry.rootRelativePath
+            : entry.name;
+        return {
+          name: entry.name,
+          adapter: id,
+          sourceRelativePath: entry.relativePath,
+          sourceRootRelativePath,
+          targetRelativePath: toPosixPath(path.join(SKILL_ROOTS[id], subPath)),
+        };
+      }
+
+      // Agents and subagents keep the selector behavior: preserve a native
+      // layout when the source already uses one, otherwise fall back to the
+      // adapter's default root for the kind.
+      const targetGroups = (
+        await Promise.all(ADAPTERS.map((a) => a.detect(scopeRoot)))
+      ).flat();
+      const bestGroup =
+        targetGroups.find((g) => g.kind === entry.kind && g.adapter === id) ??
+        targetGroups.find((g) => g.kind === entry.kind);
+
+      const defaultRelativeRoots: Record<
+        AdapterId,
+        Partial<Record<DetectedGroup['kind'], string>>
+      > = {
+        codex: {},
         claude: {
           agent: '.claude/agents',
         },
         generic: {
-          skill: '.agents/skills',
           subagent: 'subagents',
         },
       };
 
-      const targetRoot = bestGroup?.relativeRoot 
-        ?? defaultRelativeRoots[id]?.[entry.kind]
-        ?? defaultRelativeRoots['generic'][entry.kind] 
-        ?? 'skills';
+      const targetRoot =
+        bestGroup?.relativeRoot ??
+        defaultRelativeRoots[id]?.[entry.kind] ??
+        defaultRelativeRoots['generic'][entry.kind] ??
+        'subagents';
 
       const standardRoots = new Set([
         '.codex',
@@ -299,22 +347,16 @@ function createAdapter(id: AdapterId): SkillAdapter {
       ]);
       const firstSegment = entry.relativePath.split('/')[0] ?? '';
       const isStandardLayout = standardRoots.has(firstSegment);
-      const plainSkillsRelativePath =
-        firstSegment === 'skills'
-          ? entry.relativePath.split('/').slice(1).join('/')
-          : null;
 
       const targetRelativePath = isStandardLayout
         ? entry.relativePath
-        : plainSkillsRelativePath
-          ? toPosixPath(path.join('.agents/skills', plainSkillsRelativePath))
-          : toPosixPath(path.join(targetRoot, entry.name));
+        : toPosixPath(path.join(targetRoot, entry.name));
 
       return {
         name: entry.name,
         adapter: id,
         sourceRelativePath: entry.relativePath,
-        sourceRootRelativePath: entry.relativePath === '.' ? '' : entry.relativePath.split('/').slice(0, -1).join('/'),
+        sourceRootRelativePath,
         targetRelativePath,
       };
     },

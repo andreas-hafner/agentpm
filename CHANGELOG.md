@@ -8,6 +8,20 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.8.0] - 2026-06-10
+
+### Added
+
+- Added a canonical local **skill library** at `~/.agentpm/skills/` (under `AGENTPM_HOME`). It is the single source of truth for managed skills: every agent's native skill directory is a symlink back to the library, so a skill is stored once and updates propagate to every agent.
+- Added `agentpm pull [skills...] --from <target>` to fetch canonical skills from a target repository and materialize them into your coding agents. Pull auto-detects which agents are present (`.codex`, `.claude`, `.agents`) and lets you multi-select which ones to install into (defaulting to all detected); pass `--target codex,claude,generic` to choose explicitly or `--yes` to skip the prompt.
+- Added `agentpm adopt <skillOrPath>` to bring a skill that already lives in one agent (e.g. `.claude/skills/...`) under AgentPM management: it moves the content into the library, replaces the original with a managed symlink, and fans the skill out to the other agents.
+- Added a `.claude/skills` native layout so Claude skills are detected and installed alongside Claude agents (`.claude/agents`).
+
+### Changed
+
+- **Push now normalizes to a canonical `skills/<name>` form by default** instead of preserving native target-relative paths. This keeps shared repositories tidy and lets the same repo be pulled into any agent. Use `agentpm push --preserve-layout` to keep the old native-path behavior (`.codex/skills/...`, `.claude/...`).
+- **The `skill` kind now transforms across agents**: installing or pulling a skill with `--target codex|claude|generic` materializes it into that agent's native skill root (`.codex/skills`, `.claude/skills`, `.agents/skills`) regardless of the source layout. Previously plain `skills/` sources were always forced into `.agents/skills`. Nested skill collections keep their sub-path under the chosen root. Agent and subagent layouts are unchanged.
+
 ## [0.7.0] - 2026-05-26
 
 ### Changed

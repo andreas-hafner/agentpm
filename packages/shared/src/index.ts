@@ -294,6 +294,12 @@ export interface PushOptions {
   message?: string | undefined;
   dryRun?: boolean | undefined;
   all?: boolean | undefined;
+  /**
+   * Keep native target-relative paths (`.codex/skills/...`, `.claude/...`) in
+   * the destination repository. By default pushes normalize to the canonical
+   * `skills/<name>` form.
+   */
+  preserveLayout?: boolean | undefined;
 }
 
 export interface PushResult {
@@ -302,6 +308,47 @@ export interface PushResult {
   revision?: string | undefined;
   warnings: string[];
   entries: string[];
+}
+
+export interface MaterializedSkillRecord {
+  name: string;
+  adapter: AdapterId;
+  targetPath: string;
+}
+
+export interface PullOptions {
+  /** Skill names to pull. Empty/undefined pulls every canonical skill. */
+  skills?: string[] | undefined;
+  /** Canonical git target id or locator to pull from. */
+  target?: string | undefined;
+  /** Explicit agents to materialize into. Undefined = auto-detect + prompt. */
+  agents?: AdapterId[] | undefined;
+  /** 'global' (default) installs into the home agent dirs; 'project' uses cwd. */
+  scope?: InstallScope | undefined;
+  yes?: boolean | undefined;
+}
+
+export interface PullResult {
+  success: boolean;
+  sourceLocator: string;
+  revision: string | null;
+  skills: string[];
+  installs: MaterializedSkillRecord[];
+  warnings: string[];
+}
+
+export interface AdoptOptions {
+  /** Additional agents to fan the adopted skill out to. */
+  agents?: AdapterId[] | undefined;
+  yes?: boolean | undefined;
+}
+
+export interface AdoptResult {
+  success: boolean;
+  name: string;
+  libraryPath: string;
+  installs: MaterializedSkillRecord[];
+  warnings: string[];
 }
 
 export interface DoctorIssue {
