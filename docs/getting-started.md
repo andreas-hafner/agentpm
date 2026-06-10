@@ -92,7 +92,7 @@ Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM resto
 
 `.agentpmrc` is reserved for local-only overrides or compatibility fallback and should normally stay uncommitted.
 
-Source entries may be full Git URLs or shorthands such as `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Source entries may be full Git URLs or shorthands such as `owner/repo`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 
 For public no-key discovery and import, use the skills.sh CLI bridge:
 

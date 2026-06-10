@@ -69,7 +69,7 @@ Without `agentpm.yaml`, `agentpm install --project` and `agentpm install --works
 
 The resolver may index configured sources into AgentPM state, but it does not create native project skill folders or symlinks.
 
-Supported source shorthands include `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
+Supported source shorthands include bare `owner/repo`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`. Full Git URLs, SSH locators, local paths, and registry index files remain supported. Private Git sources use the local Git credential setup. Private HTTP registries can be accessed with `AGENTPM_REGISTRY_TOKEN` or a host-specific environment variable such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
 
 Public no-key discovery and import is available separately through `agentpm skills search` and `agentpm skills install`, which bridge to the official `npx skills` CLI. Selector installs such as `owner/repo@skill` work directly, plain queries can open an interactive picker, and the resolved Git locator then flows through AgentPM's normal install path.
 

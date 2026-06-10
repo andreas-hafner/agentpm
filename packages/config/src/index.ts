@@ -14,6 +14,7 @@ import {
   GLOBAL_CONFIG_VERSION,
   MANIFEST_VERSION,
   classifyLocator,
+  normalizeGitHubRepoLocator,
   type AdapterId,
   type GlobalConfigFile,
   type InstallScope,
@@ -226,7 +227,7 @@ function normalizeSourceSpec(
     if (source.trim().length === 0) {
       throw new AgentPmError('sources[] string entries must be non-empty.');
     }
-    return { locator: source };
+    return { locator: normalizeGitHubRepoLocator(source) };
   }
   const record = requireRecord(source, 'sources[] entries');
   const locator = optionalString(record.locator, 'sources[].locator');
@@ -235,7 +236,7 @@ function normalizeSourceSpec(
   }
   return {
     id: optionalString(record.id, 'sources[].id'),
-    locator,
+    locator: normalizeGitHubRepoLocator(locator),
     kind: optionalSourceKind(record.kind, 'sources[].kind'),
   };
 }
@@ -248,12 +249,13 @@ function normalizePushTargetSpec(
   if (!locator) {
     throw new AgentPmError('targets[] object entries must include locator.');
   }
+  const normalizedLocator = normalizeGitHubRepoLocator(locator);
   return {
     id: optionalString(record.id, 'targets[].id'),
-    locator,
+    locator: normalizedLocator,
     kind:
       optionalPushTargetKind(record.kind, 'targets[].kind') ??
-      (classifyLocator(locator) === 'registry' ? 'registry' : 'git'),
+      (classifyLocator(normalizedLocator) === 'registry' ? 'registry' : 'git'),
     default: record.default === true,
   };
 }
@@ -506,7 +508,9 @@ function mergeManifestInstalls(
   const merged = [...existing];
 
   for (const install of additions) {
-    const index = merged.findIndex((candidate) => candidate.name === install.name);
+    const index = merged.findIndex(
+      (candidate) => candidate.name === install.name,
+    );
     if (index >= 0) {
       merged[index] = install;
     } else {
@@ -594,14 +598,19 @@ export async function upsertProjectConfigInstalls(
   const record = requireRecord(parsed, 'project config');
   const manifest = normalizeProjectConfig(record);
   const nextSources = mergeManifestSources(manifest.sources, options.sources);
-  const nextInstalls = mergeManifestInstalls(manifest.installs, options.installs);
+  const nextInstalls = mergeManifestInstalls(
+    manifest.installs,
+    options.installs,
+  );
 
   await saveProjectConfig(cwd, {
     version: manifest.version,
     scope: optionalScope(record.scope, 'scope'),
     sources: nextSources,
     targets: manifest.targets,
-    skills: nextInstalls.map((install) => manifestInstallToProjectSkillSpec(install)),
+    skills: nextInstalls.map((install) =>
+      manifestInstallToProjectSkillSpec(install),
+    ),
   });
 
   return configPath;

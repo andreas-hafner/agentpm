@@ -32,9 +32,10 @@ Summarizes the runtime package split and the main command execution flow.
 - Native layout preservation is the default install strategy.
 - Public no-key discovery lives in a provider bridge under `packages/core`, not in `packages/registry`.
 - `agentpm.yaml` is an optional committed project config that enables shared contract mode. `.agentpmrc` is an optional local override or compatibility fallback.
-- Project config sources support shorthands such as `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`.
+- Project config sources support shorthands such as bare `owner/repo`, `github:owner/repo`, `local:<path>`, and `registry:<url-or-path>`.
 - `agentpm skills search` shells out to `npx skills find`, disables provider telemetry by default, parses provider selectors like `owner/repo@skill`, and the `skills install/list/update/remove` bridge commands reuse normal AgentPM install state while tagging provider-backed installs in metadata; `skills install <query>` can open an interactive picker, one-off direct repo installs do not have to persist a global source, and when `agentpm.yaml` exists AgentPM still persists the resolved source plus optional provider provenance so later `sync` does not need the bridge.
 - `agentpm source skills` lists installable entries from a configured source or a direct repo locator, and `agentpm install --from <locator>` reuses the same service-layer selection flow for direct repo installs.
+- `agentpm target add` accepts either `<id> <locator>` or a locator alone in interactive mode, then prompts for a target name with a repo-name default suggestion.
 - `agentpm.yaml` skills can be string shorthand or detailed objects with `source`, `ref`, `revision`, `target`, `scope`, `items`, and `workspaceRoot`.
 - `target` is the public project-config selector for native layouts (`codex`, `claude`, or `generic`); `adapter` remains a compatibility alias.
 - `AgentPmService.resolveRuntimeContext()` builds global/project/temporary skill layers without creating project runtime folders.

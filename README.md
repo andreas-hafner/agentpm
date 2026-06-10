@@ -37,8 +37,9 @@ pnpm run link:global
 ```
 
 AgentPM works in two modes:
-1) <strong>Skill Package Manager</strong> with update function for local installs
-2) A committed <strong>`agentpm.yaml`</strong> turns a repo into a shared contract for reproducible skill sync where generated skill folders, caches and credentials stay local.
+
+1. <strong>Skill Package Manager</strong> with update function for local installs
+2. A committed <strong>`agentpm.yaml`</strong> turns a repo into a shared contract for reproducible skill sync where generated skill folders, caches and credentials stay local.
 
 ## Features
 
@@ -122,12 +123,11 @@ skills:
     selector: wshobson/agents@typescript-advanced-types
 ```
 
-Private Git sources use your existing SSH key or Git credential helper. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
+Private Git sources use your existing SSH key or Git credential helper. Git locators may be bare `owner/repo` shorthands, `github:owner/repo`, HTTPS URLs, or SSH URLs. Private HTTP registries use environment tokens such as `AGENTPM_REGISTRY_TOKEN` or `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`. Do not commit credentials to `agentpm.yaml`.
 
 `skills.sh` is available as a public bridge through `agentpm skills search` and `agentpm skills install`, powered by `npx skills`. If a bridge install lands in a repo with `agentpm.yaml`, AgentPM writes the resolved source locator into the manifest, so later `agentpm sync` works without needing `skills.sh` again.
 
 If `agentpm.yaml` is absent, `agentpm install --project` and `agentpm install --workspace` install locally without creating one. Run `agentpm init` to snapshot current local installs into `agentpm.yaml`. Once `agentpm.yaml` exists, future project or workspace installs update that repo contract automatically.
-
 
 ## Smoke test
 

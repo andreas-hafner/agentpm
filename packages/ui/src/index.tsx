@@ -1,4 +1,5 @@
 import { Box, Text, render, useApp, useInput } from 'ink';
+import { createInterface } from 'node:readline/promises';
 import React, { useMemo, useState } from 'react';
 
 import type { PromptApi, SelectOption } from '@agentpm/shared';
@@ -269,6 +270,34 @@ export async function promptToConfirm(
   });
 }
 
+export async function promptToInput(
+  message: string,
+  options: {
+    defaultValue?: string | undefined;
+    placeholder?: string | undefined;
+  } = {},
+): Promise<string> {
+  if (!process.stdout.isTTY || !process.stdin.isTTY) {
+    throw new AgentPmError('Interactive text input requires a TTY.');
+  }
+
+  const rl = createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+  try {
+    const suffix = [
+      options.placeholder ? ` (${options.placeholder})` : '',
+      options.defaultValue ? ` [default: ${options.defaultValue}]` : '',
+    ].join('');
+    const answer = await rl.question(`${message}${suffix}: `);
+    const value = answer.trim();
+    return value || options.defaultValue || '';
+  } finally {
+    rl.close();
+  }
+}
+
 export async function promptToSelectMany<T>(
   message: string,
   options: SelectOption<T>[],
@@ -301,5 +330,6 @@ export function createPromptApi(): PromptApi {
     selectOne: promptToSelectOne,
     selectMany: promptToSelectMany,
     confirm: promptToConfirm,
+    input: promptToInput,
   };
 }
