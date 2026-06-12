@@ -5,63 +5,87 @@
 - Node.js 24 LTS or newer
 - Git
 
-## Install
+## Install the Right Thing
 
-Install the published CLI globally:
+Use the published CLI when you want to use AgentPM:
 
 ```bash
 npm install -g @travelhawk/agentpm
 agentpm --help
 ```
 
-For local AgentPM development, use pnpm 10 from the repository root:
+Use this repository checkout only when developing AgentPM:
 
 ```bash
 pnpm install
 pnpm build
+pnpm --filter @travelhawk/agentpm exec agentpm --help
 ```
 
-No native dependencies are required. SQLite is provided by Node.js built-in `node:sqlite`.
-
-## Validate
+If you want the local checkout on your global `PATH` while developing:
 
 ```bash
-pnpm typecheck
-pnpm lint
-pnpm test
-pnpm build
-pnpm smoke
+pnpm run link:global
 ```
 
-`pnpm smoke` builds the CLI and runs a temporary end-to-end project flow with an isolated `AGENTPM_HOME`.
+## Pick Your First Job
 
-## Try the CLI
-
-With the published package installed:
+The fastest entry point is:
 
 ```bash
-agentpm source add examples/repos/codex-sample
-agentpm inspect examples/repos/codex-sample
-agentpm resolve
+agentpm quickstart
 ```
 
-From a development checkout without a global install:
+You can also jump straight to one intent:
 
 ```bash
-node apps/cli/dist/index.js source add examples/repos/codex-sample
-node apps/cli/dist/index.js inspect examples/repos/codex-sample
-node apps/cli/dist/index.js resolve
+agentpm quickstart install
+agentpm quickstart team
+agentpm quickstart sync
+agentpm quickstart --json
 ```
 
-For isolated experiments, point AgentPM at a temp home:
+## Install One Skill
+
+Use this when you just need a skill in this repo or on this machine.
 
 ```bash
-AGENTPM_HOME=/tmp/agentpm-home node apps/cli/dist/index.js source list
+agentpm skills search typescript
+agentpm skills install typescript --project
+agentpm list
 ```
 
-## Project config
+- `--project` installs into the current repository.
+- `--global` installs into your home agent directories.
 
-Use committed `agentpm.yaml` only when you want reproducible project setup:
+## Set Up a Team Repo
+
+Use this when the repo should define a shared skill contract.
+
+```bash
+agentpm source add git@github.com:company/private-skills.git
+agentpm install --from git@github.com:company/private-skills.git --skill shared-review --project --add-source
+agentpm init
+agentpm sync
+```
+
+This creates or updates `agentpm.yaml`. Once the file exists, future project and workspace installs update the contract automatically.
+
+## Sync Skills Across Machines
+
+Use this when you want a canonical skills repository and multiple machines pulling from it.
+
+```bash
+agentpm target add my-skills git@github.com:me/skills.git --default
+agentpm push --all
+agentpm pull --from my-skills
+```
+
+Add `--target codex,claude,generic` when you want to control the runtime fan-out explicitly.
+
+## `agentpm.yaml`
+
+Commit `agentpm.yaml` only when you want reproducible repo setup:
 
 ```yaml
 sources:
@@ -84,17 +108,11 @@ skills:
       - review/checklists
 ```
 
-String skills are shorthand. Object skills bind a stable project skill name to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items. Use `target` for the runtime layout in `agentpm.yaml`; accepted MVP targets are `codex`, `claude`, and `generic`. `target` selects a matching native layout and does not convert one format into another.
+String skills are shorthand. Object skills bind a stable project skill name to a configured source, optional Git ref or resolved revision, runtime target, install scope, and one or more native skill items.
 
-By default, `agentpm install --project` and `agentpm install --workspace` stay local and do not create `agentpm.yaml`. Run `agentpm init` when you want to turn the current repo into a shared contract. After `agentpm.yaml` exists, project and workspace installs update it automatically.
+## Public Bridge
 
-Run `agentpm sync` after cloning a repository with `agentpm.yaml`. AgentPM restores the configured direct skills and records generated project targets in local Git exclude metadata so skill code, cache paths, and generated links do not need to be committed.
-
-`.agentpmrc` is reserved for local-only overrides or compatibility fallback and should normally stay uncommitted.
-
-Source entries may be full Git URLs or shorthands such as `owner/repo`, `github:owner/repo`, `local:~/skills`, and `registry:https://registry.example.com/agentpm/index.yaml`. Private HTTP registries can use `AGENTPM_REGISTRY_TOKEN` or host-specific bearer tokens such as `AGENTPM_REGISTRY_TOKEN_REGISTRY_EXAMPLE_COM`.
-
-For public no-key discovery and import, use the skills.sh CLI bridge:
+For public no-key discovery and import:
 
 ```bash
 agentpm skills search typescript
@@ -102,27 +120,52 @@ agentpm skills install wshobson/agents@typescript-advanced-types --project
 agentpm skills install typescript
 ```
 
-Adding a source immediately rebuilds the local searchable index for that source. Use `agentpm refresh` to rebuild all configured source indexes later, or pass source ids or locators to refresh only selected sources. `agentpm search --refresh <query>` refreshes before searching when you expect new Git repository entries, and normal search prints a stale-index hint when no matches are found. `agentpm update --refresh` refreshes source indexes before showing the update preview.
+## Machine-Readable Output
 
-If you want to inspect a private repo before adding it, use `agentpm source skills <repo-or-source>`. If you already know which repo you want, `agentpm install --from <repo-or-source>` can add the source, let you choose installable skills, and install them in one flow.
-
-## Recommended flow
+Use `--json` in scripts, automation, and CI:
 
 ```bash
-agentpm source add git@github.com:company/private-skills.git
-agentpm source skills git@github.com:company/private-skills.git
-agentpm skills search typescript
-agentpm install --from github:company/private-skills --skill audio-mastering --project --add-source
-agentpm source add registry:https://registry.example.com/agentpm/index.yaml
-agentpm inspect git@github.com:company/private-skills.git --target codex
-agentpm refresh
-agentpm search audio --refresh
-agentpm sync
-agentpm update --refresh
-agentpm resolve --json
-agentpm cache clean --dry-run
-agentpm doctor --fix
-agentpm target add production git@github.com:company/pushed-skills.git --default
+agentpm quickstart --json
+agentpm source list --json
+agentpm install release-helper --project --json
+agentpm update --json
+agentpm update --yes --json
+agentpm doctor --json
+agentpm doctor --fix --yes --json
 ```
 
-`agentpm update` first prints a dry-run preview and prompts before applying available updates, then prints a success summary for applied changes. `agentpm cache clean` removes unused Git checkout caches under `AGENTPM_HOME/cache/repos`; active install caches and the searchable source index are preserved. `agentpm doctor` checks malformed project config, unavailable sources, missing generated targets, broken links, missing cache entries, and generated skill folders that were accidentally committed to Git. `agentpm doctor --fix` lists each safe fix it intends to apply and asks for confirmation before removing unreachable unused sources or stale install records.
+Conventions:
+
+- successful stateful commands return `ok: true` plus an `action`
+- preview-style commands return structured previews unless `--yes` is present
+- failures return `ok: false` with recovery hints
+
+## Troubleshooting
+
+Use these first:
+
+```bash
+agentpm source list
+agentpm target list
+agentpm doctor
+agentpm doctor --fix
+```
+
+Typical fixes:
+
+- no sources configured: `agentpm source add <repo-or-registry>`
+- wrong source token: inspect `agentpm source list`
+- non-interactive execution: pass `--skill`, `--all`, `--from`, or `--yes`
+- repo contract issues: run `agentpm init` if the repo should own the contract
+
+## Validation
+
+```bash
+pnpm typecheck
+pnpm lint
+pnpm test
+pnpm build
+pnpm smoke
+```
+
+`pnpm smoke` builds the CLI and runs a temporary end-to-end flow with an isolated `AGENTPM_HOME`.
