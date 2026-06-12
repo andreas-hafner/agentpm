@@ -12,6 +12,7 @@ import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
 import { resolveTargetAddArgs } from './target-add.js';
 
 type AgentId = 'codex' | 'claude' | 'generic';
+type QuickstartFlow = 'install' | 'team' | 'sync';
 
 function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
@@ -36,6 +37,160 @@ function parseAgents(value: string | undefined): AgentId[] | undefined {
     );
   }
   return requested as AgentId[];
+}
+
+const QUICKSTART_GUIDES: Record<
+  QuickstartFlow,
+  {
+    title: string;
+    goal: string;
+    commands: string[];
+    notes: string[];
+  }
+> = {
+  install: {
+    title: 'Install One Skill',
+    goal: 'Find a skill and install it into your current machine or repo.',
+    commands: [
+      'agentpm skills search typescript',
+      'agentpm skills install typescript --project',
+      'agentpm list',
+    ],
+    notes: [
+      'Use this when you want a one-off skill without managing a shared repo yet.',
+      'Add --global to install into your home agent directories instead of the current project.',
+    ],
+  },
+  team: {
+    title: 'Set Up a Team Repo',
+    goal: 'Turn a repository into a reproducible team contract with agentpm.yaml.',
+    commands: [
+      'agentpm source add travelhawk/skills-vault',
+      'agentpm install --from travelhawk/skills-vault --skill release-helper --project --add-source',
+      'agentpm init',
+      'agentpm sync',
+    ],
+    notes: [
+      'Use this when your repo should declare required skills for everyone who clones it.',
+      'Once agentpm.yaml exists, future project and workspace installs update that contract automatically.',
+    ],
+  },
+  sync: {
+    title: 'Sync Skills Across Machines',
+    goal: 'Publish canonical skills to a Git repo and pull them onto another device.',
+    commands: [
+      'agentpm target add my-skills travelhawk/skills-vault --default',
+      'agentpm push --all',
+      'agentpm pull --from my-skills',
+    ],
+    notes: [
+      'Use this when you want one canonical skill library that fans out to Codex, Claude, and generic agents.',
+      'Add --target codex,claude,generic to control which runtimes receive pulled skills.',
+    ],
+  },
+};
+
+function printJson(value: unknown): void {
+  console.log(JSON.stringify(value, null, 2));
+}
+
+function printSuccessJson(action: string, data: Record<string, unknown> = {}): void {
+  printJson({ ok: true, action, ...data });
+}
+
+function printErrorJson(message: string, hints: string[]): void {
+  printJson({
+    ok: false,
+    error: {
+      message,
+      hints,
+    },
+  });
+}
+
+function quickstartPayload(flow?: QuickstartFlow) {
+  if (flow) {
+    return { selected: flow, guide: QUICKSTART_GUIDES[flow] };
+  }
+  return {
+    guides: Object.entries(QUICKSTART_GUIDES).map(([id, guide]) => ({
+      id,
+      ...guide,
+    })),
+  };
+}
+
+function printQuickstart(flow?: QuickstartFlow): void {
+  const guides = flow
+    ? [[flow, QUICKSTART_GUIDES[flow]] as const]
+    : (Object.entries(QUICKSTART_GUIDES) as Array<
+        [QuickstartFlow, (typeof QUICKSTART_GUIDES)[QuickstartFlow]]
+      >);
+
+  section('Quickstart');
+  for (const [id, guide] of guides) {
+    console.log(`  ${style.bold(guide.title)} (${id})`);
+    console.log(`    ${guide.goal}`);
+    for (const command of guide.commands) {
+      console.log(`    ${symbols.arrow} ${style.cyan(command)}`);
+    }
+    for (const note of guide.notes) {
+      console.log(`    ${symbols.bullet} ${note}`);
+    }
+    console.log('');
+  }
+}
+
+function errorGuidance(message: string): string[] {
+  const hints: string[] = [];
+  if (
+    /No sources have been added yet|No catalog entries are indexed yet/i.test(
+      message,
+    )
+  ) {
+    hints.push('Add a source first with `agentpm source add <repo-or-registry>`.');
+  }
+  if (/Unknown source/i.test(message)) {
+    hints.push(
+      'List configured sources with `agentpm source list` and retry with the exact source id.',
+    );
+  }
+  if (/interactive TTY|Re-run interactively/i.test(message)) {
+    hints.push(
+      'Pass explicit flags like `--skill`, `--all`, `--from`, or `--yes` when running non-interactively.',
+    );
+  }
+  if (/Unknown agent\(s\)/i.test(message)) {
+    hints.push(
+      'Use a comma-separated subset of `codex`, `claude`, or `generic` for `--target`.',
+    );
+  }
+  if (/skills\.sh|public skills|npx skills/i.test(message)) {
+    hints.push(
+      'Verify network access and retry with `agentpm skills search <query>` before installing.',
+    );
+  }
+  if (/Cannot remove source/i.test(message)) {
+    hints.push(
+      'Remove dependent installs first with `agentpm list` and `agentpm remove <name>`.',
+    );
+  }
+  if (/agentpm\.yaml|manifest/i.test(message)) {
+    hints.push(
+      'Use `agentpm init` to create a repo contract, or remove project-scope assumptions from the command.',
+    );
+  }
+  if (/credential|permission|auth|repository|SSH/i.test(message)) {
+    hints.push(
+      'Check repository access, SSH credentials, and the exact locator you passed.',
+    );
+  }
+  if (hints.length === 0) {
+    hints.push(
+      'Run `agentpm doctor` for environment checks and `agentpm --help` for command examples.',
+    );
+  }
+  return hints;
 }
 
 const BRAND_LINES = [
@@ -67,18 +222,18 @@ const style = {
 };
 
 const symbols = {
-  success: colorize('✔', 32),
-  info: colorize('ℹ', 36),
-  warning: colorize('⚠', 33),
-  error: colorize('✖', 31),
-  arrow: colorize('➤', 36),
-  star: colorize('★', 33),
-  bullet: colorize('▪', 90),
+  success: colorize('+', 32),
+  info: colorize('i', 36),
+  warning: colorize('!', 33),
+  error: colorize('x', 31),
+  arrow: colorize('->', 36),
+  star: colorize('*', 33),
+  bullet: colorize('-', 90),
 };
 
 function brandBlock(): string {
   const logo = BRAND_LINES.map((line) => style.cyan(line)).join('\n');
-  return `\n${logo}\n\n  ${style.bold(style.cyan('AgentPM'))} ${style.gray('—')} ${style.bold('Project-aware AI skill orchestration')}\n`;
+  return `\n${logo}\n\n  ${style.bold(style.cyan('AgentPM'))} ${style.gray('-')} ${style.bold('Project-aware AI skill orchestration')}\n`;
 }
 
 function formatExamples(examples: string[]): string {
@@ -168,7 +323,7 @@ function printInspection(
   for (const group of report.groups) {
     for (const entry of group.entries) {
       console.log(
-        `  ${symbols.arrow} ${style.bold(entry.name)} ${style.gray('→')} ${style.underline(entry.relativePath)}`,
+        `  ${symbols.arrow} ${style.bold(entry.name)} ${style.gray('->')} ${style.underline(entry.relativePath)}`,
       );
     }
   }
@@ -214,7 +369,7 @@ function printRuntimeContext(
         ? ` [source: ${entry.sourceLocator}]`
         : '';
       const pathSummary = entry.sourceRelativePath
-        ? ` ${style.gray('→')} ${entry.sourceRelativePath}`
+        ? ` ${style.gray('->')} ${entry.sourceRelativePath}`
         : '';
       console.log(
         `  ${symbols.success} ${style.bold(entry.name)}${pathSummary}${style.gray(source)}`,
@@ -246,7 +401,7 @@ function printUpdates(
   for (const preview of previews) {
     const revisionSummary =
       preview.currentRevision && preview.candidateRevision
-        ? `${style.bold(preview.currentRevision.slice(0, 7))} ${style.gray('→')} ${style.bold(preview.candidateRevision.slice(0, 7))}`
+        ? `${style.bold(preview.currentRevision.slice(0, 7))} ${style.gray('->')} ${style.bold(preview.candidateRevision.slice(0, 7))}`
         : 'n/a';
     const statusText = preview.changed
       ? style.yellow('update available')
@@ -423,7 +578,7 @@ function printSourceEntries(
   console.log('');
   for (const entry of result.entries) {
     console.log(
-      `  ${symbols.success} ${style.bold(entry.name)} ${style.gray('·')} ${(entry.adapter ?? 'unknown').padEnd(7)} ${entry.path ?? entry.repo}`,
+      `  ${symbols.success} ${style.bold(entry.name)} ${style.gray('|')} ${(entry.adapter ?? 'unknown').padEnd(7)} ${entry.path ?? entry.repo}`,
     );
   }
   console.log('');
@@ -441,10 +596,10 @@ function printProviderEntries(results: ProviderSkillSearchResult[]): void {
       ? `${style.cyan(entry.installs)} ${style.gray('installs')}`
       : style.gray('installs unknown');
     console.log(
-      `  ${symbols.success} ${style.bold(entry.skillSelector)} ${style.gray('·')} ${installs}`,
+      `  ${symbols.success} ${style.bold(entry.skillSelector)} ${style.gray('|')} ${installs}`,
     );
     console.log(
-      `    ${style.gray('repo')} ${style.cyan(entry.source)} ${style.gray('→')} ${entry.installLocator}`,
+      `    ${style.gray('repo')} ${style.cyan(entry.source)} ${style.gray('->')} ${entry.installLocator}`,
     );
     if (entry.url) {
       console.log(`    ${style.gray('url ')} ${entry.url}`);
@@ -467,7 +622,7 @@ function printInstalledProviderSkills(
 
   for (const entry of results) {
     console.log(
-      `  ${symbols.success} ${style.bold(entry.skillSelector ?? entry.name)} ${style.gray('·')} ${entry.scope}`,
+      `  ${symbols.success} ${style.bold(entry.skillSelector ?? entry.name)} ${style.gray('|')} ${entry.scope}`,
     );
     if (entry.source) {
       console.log(`    ${style.gray('repo')} ${style.cyan(entry.source)}`);
@@ -511,6 +666,7 @@ program
 
 addExamples(program, [
   'agentpm source add travelhawk/skills-vault',
+  'agentpm quickstart install',
   'agentpm source skills github:company/private-skills',
   'agentpm skills search typescript',
   'agentpm skills install wshobson/agents@typescript-advanced-types --project',
@@ -520,6 +676,32 @@ addExamples(program, [
   'agentpm pull --from skills-vault',
   'agentpm doctor --fix',
 ]);
+
+addExamples(
+  program
+    .command('quickstart')
+    .description('Show task-oriented first-run flows')
+    .argument('[flow]', 'One of: install, team, sync')
+    .option('--json', 'Print machine-readable JSON')
+    .action(
+      (
+        flow: QuickstartFlow | undefined,
+        flags: { json?: boolean },
+      ) => {
+        if (flow && !(flow in QUICKSTART_GUIDES)) {
+          throw new Error(
+            `Unknown quickstart flow: ${flow}. Use one of: ${Object.keys(QUICKSTART_GUIDES).join(', ')}.`,
+          );
+        }
+        if (flags.json) {
+          printJson(quickstartPayload(flow));
+          return;
+        }
+        printQuickstart(flow);
+      },
+    ),
+  ['agentpm quickstart', 'agentpm quickstart install', 'agentpm quickstart --json'],
+);
 
 const source = addExamples(
   program.command('source').alias('sources').description('Manage sources'),
@@ -585,6 +767,7 @@ addExamples(
       'Install only entries for codex, claude, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
+    .option('--json', 'Print machine-readable JSON')
     .action(
       async (
         sourceOrSelector: string,
@@ -596,6 +779,7 @@ addExamples(
           skill?: string[];
           target?: string;
           yes?: boolean;
+          json?: boolean;
         },
       ) => {
         const installs = await withService((service) =>
@@ -607,9 +791,16 @@ addExamples(
             yes: flags.yes,
           }),
         );
+        if (flags.json) {
+          printSuccessJson('skills.install', {
+            sourceOrSelector,
+            installs,
+          });
+          return;
+        }
         for (const install of installs) {
           console.log(
-            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('->')} ${style.underline(install.targetPath)}`,
           );
         }
         console.log('');
@@ -642,10 +833,18 @@ skillsCmd
     'Installed skill name or owner/repo@skill selector',
   )
   .option('--purge', 'Also purge unused cache data')
-  .action(async (identifier: string, flags: { purge?: boolean }) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (identifier: string, flags: { purge?: boolean; json?: boolean }) => {
     const removed = await withService((service) =>
       service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
     );
+    if (flags.json) {
+      printSuccessJson('skills.remove', {
+        identifier,
+        removed,
+      });
+      return;
+    }
     const selector =
       typeof removed.metadata.providerSkillSelector === 'string'
         ? removed.metadata.providerSkillSelector
@@ -662,19 +861,45 @@ skillsCmd
     'Optional installed skill names or owner/repo@skill selectors',
   )
   .option('--yes', 'Confirm risky remaps automatically')
-  .action(async (identifiers: string[], flags: { yes?: boolean }) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (identifiers: string[], flags: { yes?: boolean; json?: boolean }) => {
     await withService(async (service) => {
       const previews = await service.updateProviderSkills(identifiers, {
         apply: false,
       });
+      const changed = previews.filter((preview) => preview.changed);
+      if (flags.json && !flags.yes) {
+        printSuccessJson('skills.update', {
+          identifiers,
+          applied: false,
+          requiresConfirmation: changed.length > 0,
+          preview: previews,
+        });
+        return;
+      }
       if (previews.length === 0) {
+        if (flags.json) {
+          printSuccessJson('skills.update', {
+            identifiers,
+            applied: false,
+            requiresConfirmation: false,
+            preview: previews,
+          });
+          return;
+        }
         console.log(`\n${symbols.info} No skills.sh installs found.\n`);
         return;
       }
       printUpdates(previews);
-
-      const changed = previews.filter((preview) => preview.changed);
       if (changed.length === 0) {
+        if (flags.json) {
+          printSuccessJson('skills.update', {
+            identifiers,
+            applied: false,
+            requiresConfirmation: false,
+            preview: previews,
+          });
+        }
         return;
       }
 
@@ -699,6 +924,15 @@ skillsCmd
         apply: true,
         yes: Boolean(flags.yes),
       } satisfies UpdateOptions);
+      if (flags.json) {
+        printSuccessJson('skills.update', {
+          identifiers,
+          applied: true,
+          preview: previews,
+          result: applied,
+        });
+        return;
+      }
       printUpdates(applied);
       const updatedCount = applied.filter(
         (preview) =>
@@ -719,8 +953,16 @@ addExamples(
       '<locator>',
       'Git locator, OWNER/REPO shorthand, local folder, or registry index path',
     )
-    .action(async (locator: string) => {
+    .option('--json', 'Print machine-readable JSON')
+    .action(async (locator: string, flags: { json?: boolean }) => {
       const result = await withService((service) => service.addSource(locator));
+      if (flags.json) {
+        printSuccessJson('source.add', {
+          locator,
+          result,
+        });
+        return;
+      }
       console.log(
         `\n${symbols.success} ${style.bold('Added source')} ${style.cyan(result.source.displayName)} ${style.gray(`(${result.indexedEntries} entries indexed)`)}\n`,
       );
@@ -732,10 +974,14 @@ addExamples(
   ],
 );
 
-source.command('list').action(async () => {
+source.command('list').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const sources = await withService((service) =>
     Promise.resolve(service.listSources()),
   );
+  if (flags.json) {
+    printSuccessJson('source.list', { sources });
+    return;
+  }
   if (sources.length === 0) {
     console.log('No sources configured.');
     return;
@@ -784,8 +1030,15 @@ addExamples(
 source
   .command('remove')
   .argument('<source>', 'Source id or locator')
-  .action(async (sourceToken: string) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (sourceToken: string, flags: { json?: boolean }) => {
     await withService((service) => service.removeSource(sourceToken));
+    if (flags.json) {
+      printSuccessJson('source.remove', {
+        source: sourceToken,
+      });
+      return;
+    }
     console.log(
       `\n${symbols.success} ${style.bold('Removed source')} ${style.cyan(sourceToken)}\n`,
     );
@@ -814,11 +1067,12 @@ addExamples(
       'Target locator (Git URL, OWNER/REPO shorthand, or registry path)',
     )
     .option('--default', 'Make this the default push target')
+    .option('--json', 'Print machine-readable JSON')
     .action(
       async (
         idOrLocator: string,
         locatorArg: string | undefined,
-        flags: { default?: boolean },
+        flags: { default?: boolean; json?: boolean },
       ) => {
         const { id, locator } = await resolveTargetAddArgs(
           idOrLocator,
@@ -835,6 +1089,16 @@ addExamples(
         await withService((service) =>
           service.addTarget(id, locator, flags.default),
         );
+        if (flags.json) {
+          printSuccessJson('target.add', {
+            target: {
+              id,
+              locator,
+              default: Boolean(flags.default),
+            },
+          });
+          return;
+        }
         console.log(
           `\n${symbols.success} ${style.bold('Added target')} ${style.cyan(id)} to global config${flags.default ? ' as default' : ''}\n`,
         );
@@ -849,8 +1113,13 @@ addExamples(
 targetCmd
   .command('default')
   .argument('<id>', 'Target ID')
-  .action(async (id: string) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (id: string, flags: { json?: boolean }) => {
     await withService((service) => service.setDefaultTarget(id));
+    if (flags.json) {
+      printSuccessJson('target.default', { id });
+      return;
+    }
     console.log(
       `\n${symbols.success} ${style.bold('Default target')} ${style.cyan(id)} saved to global config\n`,
     );
@@ -859,17 +1128,28 @@ targetCmd
 targetCmd
   .command('remove')
   .argument('<id>', 'Target ID')
-  .action(async (id: string) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (id: string, flags: { json?: boolean }) => {
     await withService((service) => service.removeTarget(id));
+    if (flags.json) {
+      printSuccessJson('target.remove', { id });
+      return;
+    }
     console.log(
       `\n${symbols.success} ${style.bold('Removed target')} ${style.cyan(id)} from global config\n`,
     );
   });
 
-targetCmd.command('list').action(async () => {
+targetCmd.command('list').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const { loadGlobalConfig } = await import('@agentpm/config');
   const globalConfig = await loadGlobalConfig(process.cwd());
   const globalTargets = globalConfig.targets ?? [];
+  if (flags.json) {
+    printSuccessJson('target.list', {
+      targets: globalTargets,
+    });
+    return;
+  }
 
   if (globalTargets.length === 0) {
     console.log('No targets configured in global config.');
@@ -947,10 +1227,15 @@ addExamples(
       '[sources...]',
       'Optional source ids, locators, or names to refresh',
     )
-    .action(async (sources: string[]) => {
+    .option('--json', 'Print machine-readable JSON')
+    .action(async (sources: string[], flags: { json?: boolean }) => {
       const results = await withService((service) =>
         service.refreshSources(sources),
       );
+      if (flags.json) {
+        printSuccessJson('refresh', { sources, results });
+        return;
+      }
       printRefreshResults(results);
     }),
   ['agentpm refresh', 'agentpm refresh skills-vault enterprise'],
@@ -984,6 +1269,7 @@ addExamples(
       'Install only entries for codex, claude, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
+    .option('--json', 'Print machine-readable JSON')
     .action(
       async (
         names: string[],
@@ -998,6 +1284,7 @@ addExamples(
           ref?: string;
           target?: string;
           yes?: boolean;
+          json?: boolean;
         },
       ) => {
         const installs = await withService((service) =>
@@ -1013,9 +1300,16 @@ addExamples(
             yes: flags.yes,
           }),
         );
+        if (flags.json) {
+          printSuccessJson('install', {
+            names,
+            installs,
+          });
+          return;
+        }
         for (const install of installs) {
           console.log(
-            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('→')} ${style.underline(install.targetPath)}`,
+            `\n${symbols.success} ${style.bold('Installed')} ${style.green(install.name)} ${style.gray('->')} ${style.underline(install.targetPath)}`,
           );
         }
       },
@@ -1032,18 +1326,41 @@ program
   .argument('[names...]', 'Optional installed names to update')
   .option('--refresh', 'Refresh source indexes before checking updates')
   .option('--yes', 'Confirm risky remaps automatically')
+  .option('--json', 'Print machine-readable JSON')
   .action(
-    async (names: string[], flags: { yes?: boolean; refresh?: boolean }) => {
+    async (names: string[], flags: { yes?: boolean; refresh?: boolean; json?: boolean }) => {
       await withService(async (service) => {
+        let refreshResults: Awaited<ReturnType<typeof service.refreshSources>> | undefined;
         if (flags.refresh) {
-          printRefreshResults(await service.refreshSources());
+          refreshResults = await service.refreshSources();
+          if (!flags.json) {
+            printRefreshResults(refreshResults);
+          }
         }
 
         const previews = await service.previewUpdates({ names });
-        printUpdates(previews);
-
         const changed = previews.filter((preview) => preview.changed);
+        if (flags.json && !flags.yes) {
+          printSuccessJson('update', {
+            names,
+            applied: false,
+            requiresConfirmation: changed.length > 0,
+            refreshResults,
+            preview: previews,
+          });
+          return;
+        }
+        printUpdates(previews);
         if (changed.length === 0) {
+          if (flags.json) {
+            printSuccessJson('update', {
+              names,
+              applied: false,
+              requiresConfirmation: false,
+              refreshResults,
+              preview: previews,
+            });
+          }
           return;
         }
 
@@ -1066,6 +1383,16 @@ program
           apply: true,
           yes: Boolean(flags.yes),
         } satisfies UpdateOptions);
+        if (flags.json) {
+          printSuccessJson('update', {
+            names,
+            applied: true,
+            refreshResults,
+            preview: previews,
+            result: applied,
+          });
+          return;
+        }
         printUpdates(applied);
         const updatedCount = applied.filter(
           (preview) =>
@@ -1094,10 +1421,18 @@ program
   .command('remove')
   .argument('<name>', 'Installed name')
   .option('--purge', 'Also purge unused cache data')
-  .action(async (name: string, flags: { purge?: boolean }) => {
+  .option('--json', 'Print machine-readable JSON')
+  .action(async (name: string, flags: { purge?: boolean; json?: boolean }) => {
     const removed = await withService((service) =>
       service.removeInstall(name, { purge: Boolean(flags.purge) }),
     );
+    if (flags.json) {
+      printSuccessJson('remove', {
+        name,
+        removed,
+      });
+      return;
+    }
     console.log(
       `\n${symbols.success} ${style.bold('Removed')} ${style.green(removed.name)}\n`,
     );
@@ -1115,15 +1450,22 @@ const cacheCleanCmd = addExamples(
       'Remove unused Git checkout caches while preserving active installs and the search index',
     )
     .option('--dry-run', 'Show unused cache paths without deleting them'),
-  ['agentpm cache clean --dry-run', 'agentpm cache clean'],
+  ['agentpm cache clean --dry-run', 'agentpm cache clean --json', 'agentpm cache clean'],
 );
 
-cacheCleanCmd.action(async () => {
+cacheCleanCmd.option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const dryRun = Boolean(
     cacheCleanCmd.opts<{ dryRun?: boolean }>().dryRun ||
     rawCliArgs.includes('--dry-run'),
   );
   const result = await withService((service) => service.cleanCache({ dryRun }));
+  if (flags.json) {
+    printSuccessJson('cache.clean', {
+      dryRun,
+      result,
+    });
+    return;
+  }
   printCacheCleanResult(result);
 });
 
@@ -1142,6 +1484,7 @@ addExamples(
       '--preserve-layout',
       'Keep native target-relative paths instead of normalizing to skills/<name>',
     )
+    .option('--json', 'Print machine-readable JSON')
     .action(
       async (
         pathArg: string | undefined,
@@ -1151,6 +1494,7 @@ addExamples(
           all?: boolean;
           dryRun?: boolean;
           preserveLayout?: boolean;
+          json?: boolean;
         },
       ) => {
         const result = await withService(
@@ -1167,6 +1511,13 @@ addExamples(
             statusMessages: true,
           },
         );
+        if (flags.json) {
+          printSuccessJson('push', {
+            path: pathArg,
+            result,
+          });
+          return;
+        }
         if (result.success) {
           console.log(
             `\n${symbols.success} ${style.bold('Pushed to')} ${style.cyan(result.targetLocator)}`,
@@ -1207,6 +1558,7 @@ addExamples(
     )
     .option('--project', 'Install into the current project instead of globally')
     .option('--yes', 'Skip prompts and install to all detected agents')
+    .option('--json', 'Print machine-readable JSON')
     .action(
       async (
         skills: string[],
@@ -1215,6 +1567,7 @@ addExamples(
           target?: string;
           project?: boolean;
           yes?: boolean;
+          json?: boolean;
         },
       ) => {
         const result = await withService(
@@ -1228,13 +1581,20 @@ addExamples(
             }),
           { statusMessages: true },
         );
+        if (flags.json) {
+          printSuccessJson('pull', {
+            skills,
+            result,
+          });
+          return;
+        }
         if (result.success) {
           console.log(
             `\n${symbols.success} ${style.bold('Pulled from')} ${style.cyan(result.sourceLocator)}`,
           );
           for (const install of result.installs) {
             console.log(
-              `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('→')} ${install.targetPath}`,
+              `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('->')} ${install.targetPath}`,
             );
           }
           for (const warning of result.warnings) {
@@ -1265,8 +1625,9 @@ addExamples(
       'Comma-separated agents to also install into (codex,claude,generic)',
     )
     .option('--yes', 'Skip prompts and install to all detected agents')
+    .option('--json', 'Print machine-readable JSON')
     .action(
-      async (token: string, flags: { target?: string; yes?: boolean }) => {
+      async (token: string, flags: { target?: string; yes?: boolean; json?: boolean }) => {
         const result = await withService(
           (service) =>
             service.adopt(token, {
@@ -1275,13 +1636,20 @@ addExamples(
             }),
           { statusMessages: true },
         );
+        if (flags.json) {
+          printSuccessJson('adopt', {
+            token,
+            result,
+          });
+          return;
+        }
         if (result.success) {
           console.log(
-            `\n${symbols.success} ${style.bold('Adopted')} ${style.green(result.name)} ${style.gray('→')} ${style.underline(result.libraryPath)}`,
+            `\n${symbols.success} ${style.bold('Adopted')} ${style.green(result.name)} ${style.gray('->')} ${style.underline(result.libraryPath)}`,
           );
           for (const install of result.installs) {
             console.log(
-              `  ${symbols.bullet} ${install.adapter} ${style.gray('→')} ${install.targetPath}`,
+              `  ${symbols.bullet} ${install.adapter} ${style.gray('->')} ${install.targetPath}`,
             );
           }
           for (const warning of result.warnings) {
@@ -1297,10 +1665,14 @@ addExamples(
   ],
 );
 
-program.command('list').action(async () => {
+program.command('list').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const installs = await withService((service) =>
     Promise.resolve(service.listInstalls()),
   );
+  if (flags.json) {
+    printSuccessJson('list', { installs });
+    return;
+  }
   if (installs.length === 0) {
     console.log('No installs found.');
     return;
@@ -1310,15 +1682,23 @@ program.command('list').action(async () => {
   }
 });
 
-program.command('init').action(async () => {
+program.command('init').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const result = await withService((service) => service.initManifest());
+  if (flags.json) {
+    printSuccessJson('init', { result });
+    return;
+  }
   console.log(
-    `\n${symbols.success} ${style.bold('Initialized manifest')} ${style.gray('→')} ${style.underline(result.manifestPath)}\n`,
+    `\n${symbols.success} ${style.bold('Initialized manifest')} ${style.gray('->')} ${style.underline(result.manifestPath)}\n`,
   );
 });
 
-program.command('sync').action(async () => {
+program.command('sync').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const installs = await withService((service) => service.syncManifest());
+  if (flags.json) {
+    printSuccessJson('sync', { installs });
+    return;
+  }
   for (const install of installs) {
     console.log(
       `${symbols.success} ${style.bold('Synced')} ${style.green(install.name)}`,
@@ -1347,10 +1727,19 @@ program
 addExamples(
   program
     .command('doctor')
+    .option('--yes', 'Apply safe fixes without interactive confirmation')
     .option('--fix', 'Interactively apply safe fixes for detected errors')
-    .action(async (flags: { fix?: boolean }) => {
+    .option('--json', 'Print machine-readable JSON')
+    .action(async (flags: { fix?: boolean; yes?: boolean; json?: boolean }) => {
       await withService(async (service) => {
         const issues = await service.doctor();
+        if (flags.json && !flags.fix) {
+          printSuccessJson('doctor', {
+            fixPlanned: false,
+            issues,
+          });
+          return;
+        }
         printDoctor(issues);
 
         if (!flags.fix) {
@@ -1359,31 +1748,91 @@ addExamples(
 
         const errors = issues.filter((issue) => issue.severity === 'error');
         if (errors.length === 0) {
+          if (flags.json) {
+            printSuccessJson('doctor', {
+              fixPlanned: false,
+              issues,
+              actions: [],
+              results: [],
+            });
+            return;
+          }
           console.log(`\n${symbols.success} No errors detected.\n`);
           return;
         }
 
-        const shouldPlan = await promptToConfirm(
-          'Errors detected. Would you like to attempt to fix these issues? [y/N]',
-        );
+        const shouldPlan =
+          flags.yes ||
+          (await promptToConfirm(
+            'Errors detected. Would you like to attempt to fix these issues? [y/N]',
+          ));
         if (!shouldPlan) {
+          if (flags.json) {
+            printSuccessJson('doctor', {
+              fixPlanned: false,
+              issues,
+              actions: [],
+              results: [],
+            });
+            return;
+          }
           console.log(`\n${symbols.info} No fixes applied.\n`);
           return;
         }
 
         const actions = await service.planDoctorFixes(issues);
+        if (flags.json && !flags.yes) {
+          printSuccessJson('doctor', {
+            fixPlanned: true,
+            fixApplied: false,
+            issues,
+            actions,
+            results: [],
+          });
+          return;
+        }
         printDoctorFixes(actions, issues);
         if (actions.length === 0) {
+          if (flags.json) {
+            printSuccessJson('doctor', {
+              fixPlanned: true,
+              fixApplied: false,
+              issues,
+              actions,
+              results: [],
+            });
+          }
           return;
         }
 
-        const shouldApply = await promptToConfirm('Apply these fixes? [y/N]');
+        const shouldApply =
+          flags.yes || (await promptToConfirm('Apply these fixes? [y/N]'));
         if (!shouldApply) {
+          if (flags.json) {
+            printSuccessJson('doctor', {
+              fixPlanned: true,
+              fixApplied: false,
+              issues,
+              actions,
+              results: [],
+            });
+            return;
+          }
           console.log(`\n${symbols.info} No fixes applied.\n`);
           return;
         }
 
         const results = await service.applyDoctorFixes(actions);
+        if (flags.json) {
+          printSuccessJson('doctor', {
+            fixPlanned: true,
+            fixApplied: true,
+            issues,
+            actions,
+            results,
+          });
+          return;
+        }
         for (const result of results) {
           if (result.applied) {
             console.log(`${symbols.success} ${result.action.description}`);
@@ -1402,14 +1851,29 @@ try {
     if (err.message === '(outputHelp)' || err.message === program.version()) {
       process.exit(0);
     }
+    const hints = errorGuidance(err.message);
+    if (rawCliArgs.includes('--json')) {
+      printErrorJson(err.message, hints);
+      process.exit(1);
+    }
     console.error(
       `\n${symbols.error} ${style.bold(style.red('AgentPM Command Failed'))}`,
     );
     console.error(`  ${style.red(err.message)}`);
-    console.error(
-      `\n${style.gray('Need help? Run a diagnostic check using:')} ${style.cyan('agentpm doctor')}\n`,
-    );
+    if (hints.length > 0) {
+      console.error('');
+      for (const hint of hints) {
+        console.error(`  ${symbols.bullet} ${hint}`);
+      }
+      console.error('');
+    }
   } else {
+    if (rawCliArgs.includes('--json')) {
+      printErrorJson(String(err), [
+        'Run `agentpm doctor` for environment checks and `agentpm --help` for command examples.',
+      ]);
+      process.exit(1);
+    }
     console.error(
       `\n${symbols.error} ${style.bold(style.red('An unexpected error occurred'))}`,
     );
