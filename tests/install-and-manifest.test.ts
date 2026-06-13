@@ -1100,6 +1100,7 @@ describe('install and manifest flows', () => {
       const remoteDir = await makeTempDir('agentpm-push-remote-');
       const remoteRepo = path.join(remoteDir, 'skills.git');
       const verifyDir = path.join(remoteDir, 'verify');
+      const promptedDescriptions: string[] = [];
       const gitGlobalConfig = await writeGitGlobalIgnoreConfig(remoteDir, [
         '.agents/',
         '.codex/',
@@ -1125,10 +1126,14 @@ describe('install and manifest flows', () => {
           GIT_CONFIG_GLOBAL: gitGlobalConfig,
         },
         prompts: {
-          selectMany: (_message, options) =>
-            Promise.resolve([
+          selectMany: (_message, options) => {
+            promptedDescriptions.push(
+              ...options.map((option) => option.description ?? ''),
+            );
+            return Promise.resolve([
               options.find((option) => option.label === 'skill-b')!.value,
-            ]),
+            ]);
+          },
         },
       });
 
@@ -1139,6 +1144,12 @@ describe('install and manifest flows', () => {
         });
 
         expect(result.entries).toEqual(['skills/skill-b']);
+        expect(promptedDescriptions).toContain(
+          'generic  skills/skill-a  <- .agents/skills/skill-a',
+        );
+        expect(promptedDescriptions).toContain(
+          'codex  skills/skill-b  <- .codex/skills/skill-b',
+        );
 
         git(remoteDir, 'clone', remoteRepo, verifyDir);
         expect(

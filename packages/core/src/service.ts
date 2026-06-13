@@ -175,6 +175,18 @@ interface PushCandidate {
   destinationRelativePath: string;
 }
 
+function describePushCandidate(
+  cwd: string,
+  candidate: PushCandidate,
+): string {
+  const storedPath = path.relative(cwd, candidate.sourcePath);
+  const displayPath =
+    storedPath.length > 0 && !storedPath.startsWith('..')
+      ? toPosixPath(storedPath)
+      : candidate.sourcePath;
+  return `${candidate.adapter}  ${candidate.destinationRelativePath}  <- ${displayPath}`;
+}
+
 export interface SourceSkillEntry {
   name: string;
   path: string | null;
@@ -1627,7 +1639,7 @@ export class AgentPmService {
         workspaceCandidates.map((candidate) => ({
           label: candidate.name,
           value: candidate,
-          description: `${candidate.adapter}  ${candidate.destinationRelativePath}`,
+          description: describePushCandidate(this.cwd, candidate),
         })),
       );
       this.assertNoPushDestinationCollisions(
@@ -1644,7 +1656,7 @@ export class AgentPmService {
       )
       .join('\n');
     throw new AgentPmError(
-      `Multiple pushable entries were detected. Re-run with a skill name, a path, or --all.\n\nAvailable entries:\n${available}`,
+      `Multiple pushable entries were detected. Re-run interactively, or pass a skill name or path.\n\nAvailable entries:\n${available}`,
     );
   }
 
@@ -1673,7 +1685,7 @@ export class AgentPmService {
       matches.map((candidate) => ({
         label: candidate.name,
         value: candidate,
-        description: `${candidate.adapter}  ${candidate.destinationRelativePath}`,
+        description: describePushCandidate(this.cwd, candidate),
       })),
     );
     return [selected];

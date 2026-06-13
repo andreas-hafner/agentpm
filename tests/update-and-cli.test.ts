@@ -43,6 +43,12 @@ const tsxLoader = pathToFileURL(
   path.resolve('node_modules/tsx/dist/loader.mjs'),
 ).href;
 const rootTsconfig = path.resolve('tsconfig.json');
+const GIT_ENV = {
+  GIT_AUTHOR_NAME: 'AgentPM Tests',
+  GIT_AUTHOR_EMAIL: 'tests@example.com',
+  GIT_COMMITTER_NAME: 'AgentPM Tests',
+  GIT_COMMITTER_EMAIL: 'tests@example.com',
+};
 
 async function createFakeNpx(binRoot: string): Promise<string> {
   const binDir = path.join(binRoot, 'fake-npx');
@@ -722,6 +728,57 @@ describe('update and cli flows', () => {
   );
 
   test(
+    'list collapses one logical skill installed into multiple agents',
+    async () => {
+      const homeDir = await makeTempDir('agentpm-list-home-');
+      const projectDir = await makeTempDir('agentpm-list-project-');
+      const remoteDir = await makeTempDir('agentpm-list-remote-');
+      const remoteRepo = path.join(remoteDir, 'skills.git');
+      const seedDir = path.join(remoteDir, 'seed');
+
+      git(remoteDir, 'init', '--bare', '-b', 'main', remoteRepo);
+      await writeFile(
+        path.join(seedDir, 'skills', 'implementation-workflow', 'SKILL.md'),
+        '# implementation workflow\n',
+      );
+      git(seedDir, 'init', '-b', 'main');
+      git(seedDir, 'config', 'user.name', 'AgentPM Tests');
+      git(seedDir, 'config', 'user.email', 'tests@example.com');
+      git(seedDir, 'add', '.');
+      git(seedDir, 'commit', '-m', 'seed');
+      git(seedDir, 'remote', 'add', 'origin', remoteRepo);
+      git(seedDir, 'push', 'origin', 'main');
+
+      const service = new AgentPmService({
+        cwd: projectDir,
+        env: { ...GIT_ENV, AGENTPM_HOME: homeDir },
+      });
+      try {
+        await service.pull({
+          target: remoteRepo,
+          agents: ['codex', 'claude', 'generic'],
+          scope: 'project',
+          yes: true,
+        });
+      } finally {
+        service.close();
+      }
+
+      const { stdout } = await runCli(['list'], {
+        cwd: projectDir,
+        env: { AGENTPM_HOME: homeDir, ...GIT_ENV },
+      });
+      const lines = stdout
+        .split(/\r?\n/)
+        .filter((line) => line.includes('implementation-workflow'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(path.join(homeDir, 'skills', 'implementation-workflow'));
+      expect(lines[0]).toContain('(3 targets)');
+    },
+    CI_TEST_TIMEOUT,
+  );
+
+  test(
     'skills remove removes a provider-tagged install',
     async () => {
       const homeDir = await makeTempDir('agentpm-home-');
@@ -831,7 +888,8 @@ describe('update and cli flows', () => {
       expect(stdout).toContain(
         'target add https://github.com/travelhawk/skills-vault',
       );
-      expect(stdout).toContain('push --all');
+      expect(stdout).toContain('agentpm push');
+      expect(stdout).not.toContain('push --all');
     },
     CI_TEST_TIMEOUT,
   );

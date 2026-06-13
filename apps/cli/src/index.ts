@@ -80,7 +80,7 @@ const QUICKSTART_GUIDES: Record<
     goal: 'Publish canonical skills to a Git repo and pull them onto another device.',
     commands: [
       'agentpm target add my-skills travelhawk/skills-vault --default',
-      'agentpm push --all',
+      'agentpm push',
       'agentpm pull --from my-skills',
     ],
     notes: [
@@ -632,6 +632,65 @@ function printInstalledProviderSkills(
   console.log('');
 }
 
+function summarizeInstalls(
+  installs: Awaited<ReturnType<AgentPmService['listInstalls']>>,
+): Array<{
+  name: string;
+  scope: string;
+  scopeRoot: string;
+  storedPath: string;
+  adapters: string[];
+  targetPaths: string[];
+}> {
+  const grouped = new Map<
+    string,
+    {
+      name: string;
+      scope: string;
+      scopeRoot: string;
+      storedPath: string;
+      adapters: Set<string>;
+      targetPaths: Set<string>;
+    }
+  >();
+
+  for (const install of installs) {
+    const storedPath = install.linkTarget || install.targetPath;
+    const key = [
+      install.name,
+      install.scope,
+      install.scopeRoot,
+      storedPath,
+    ].join('::');
+    const existing = grouped.get(key) ?? {
+      name: install.name,
+      scope: install.scope,
+      scopeRoot: install.scopeRoot,
+      storedPath,
+      adapters: new Set<string>(),
+      targetPaths: new Set<string>(),
+    };
+    existing.adapters.add(install.adapter);
+    existing.targetPaths.add(install.targetPath);
+    grouped.set(key, existing);
+  }
+
+  return [...grouped.values()]
+    .map((entry) => ({
+      name: entry.name,
+      scope: entry.scope,
+      scopeRoot: entry.scopeRoot,
+      storedPath: entry.storedPath,
+      adapters: [...entry.adapters].sort(),
+      targetPaths: [...entry.targetPaths].sort(),
+    }))
+    .sort((left, right) =>
+      `${left.name}:${left.scope}:${left.storedPath}`.localeCompare(
+        `${right.name}:${right.scope}:${right.storedPath}`,
+      ),
+    );
+}
+
 async function withService<T>(
   callback: (service: AgentPmService) => Promise<T>,
   options: {
@@ -672,7 +731,7 @@ addExamples(program, [
   'agentpm skills install wshobson/agents@typescript-advanced-types --project',
   'agentpm install --from travelhawk/skills-vault --skill release-helper --project',
   'agentpm target add https://github.com/travelhawk/skills-vault',
-  'agentpm push --all',
+  'agentpm push',
   'agentpm pull --from skills-vault',
   'agentpm doctor --fix',
 ]);
@@ -1478,7 +1537,6 @@ addExamples(
     )
     .option('--to <target>', 'Target id or locator')
     .option('-m, --message <message>', 'Commit message if changes exist')
-    .option('--all', 'Push all detected local skills or agents')
     .option('--dry-run', 'Show what would be pushed without doing it')
     .option(
       '--preserve-layout',
@@ -1491,7 +1549,6 @@ addExamples(
         flags: {
           to?: string;
           message?: string;
-          all?: boolean;
           dryRun?: boolean;
           preserveLayout?: boolean;
           json?: boolean;
@@ -1503,7 +1560,6 @@ addExamples(
               path: pathArg,
               target: flags.to,
               message: flags.message,
-              all: flags.all,
               dryRun: flags.dryRun,
               preserveLayout: flags.preserveLayout,
             }),
@@ -1538,9 +1594,9 @@ addExamples(
       },
     ),
   [
-    'agentpm push --all',
+    'agentpm push',
     'agentpm push skill-a --to travelhawk/skills-vault',
-    'agentpm push --all --preserve-layout',
+    'agentpm push --preserve-layout',
   ],
 );
 
@@ -1669,16 +1725,23 @@ program.command('list').option('--json', 'Print machine-readable JSON').action(a
   const installs = await withService((service) =>
     Promise.resolve(service.listInstalls()),
   );
+  const summaries = summarizeInstalls(installs);
   if (flags.json) {
-    printSuccessJson('list', { installs });
+    printSuccessJson('list', { installs: summaries });
     return;
   }
-  if (installs.length === 0) {
+  if (summaries.length === 0) {
     console.log('No installs found.');
     return;
   }
-  for (const install of installs) {
-    console.log(`${install.name}  ${install.scope}  ${install.targetPath}`);
+  for (const install of summaries) {
+    const targetsSuffix =
+      install.targetPaths.length > 1
+        ? ` ${style.gray(`(${install.targetPaths.length} targets)`)}` 
+        : '';
+    console.log(
+      `${install.name}  ${install.scope}  ${install.storedPath}${targetsSuffix}`,
+    );
   }
 });
 
