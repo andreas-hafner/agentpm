@@ -1538,6 +1538,7 @@ addExamples(
     .option('--to <target>', 'Target id or locator')
     .option('-m, --message <message>', 'Commit message if changes exist')
     .option('--dry-run', 'Show what would be pushed without doing it')
+    .option('--all', 'Push all detected skills and agents without prompting')
     .option(
       '--preserve-layout',
       'Keep native target-relative paths instead of normalizing to skills/<name>',
@@ -1550,6 +1551,7 @@ addExamples(
           to?: string;
           message?: string;
           dryRun?: boolean;
+          all?: boolean;
           preserveLayout?: boolean;
           json?: boolean;
         },
@@ -1561,6 +1563,7 @@ addExamples(
               target: flags.to,
               message: flags.message,
               dryRun: flags.dryRun,
+              all: flags.all,
               preserveLayout: flags.preserveLayout,
             }),
           {
@@ -1595,6 +1598,7 @@ addExamples(
     ),
   [
     'agentpm push',
+    'agentpm push --all',
     'agentpm push skill-a --to travelhawk/skills-vault',
     'agentpm push --preserve-layout',
   ],

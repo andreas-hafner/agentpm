@@ -931,4 +931,16 @@ describe('update and cli flows', () => {
     },
     CI_TEST_TIMEOUT,
   );
+
+  test(
+    'prints push --all in push command help',
+    async () => {
+      const { stdout } = await runCli(['push', '--help'], {
+        cwd: path.resolve('.'),
+      });
+      expect(stdout).toContain('--all');
+      expect(stdout).toContain('agentpm push --all');
+    },
+    CI_TEST_TIMEOUT,
+  );
 });
