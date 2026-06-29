@@ -895,6 +895,44 @@ describe('update and cli flows', () => {
   );
 
   test(
+    'prints agent-safe quickstart commands as JSON',
+    async () => {
+      const { stdout } = await runCli(['quickstart', '--json'], {
+        cwd: path.resolve('.'),
+      });
+      const payload = JSON.parse(stdout) as {
+        guides: Array<{ id: string; commands: string[] }>;
+      };
+      const commands = payload.guides.flatMap((guide) => guide.commands);
+      expect(commands).toContain('agentpm push --all --to my-skills --json');
+      expect(commands).toContain(
+        'agentpm pull --from my-skills --target codex,claude,generic --yes --json',
+      );
+      expect(commands).not.toContain('agentpm push');
+      expect(
+        commands.every(
+          (command) => !command.includes(' --json') || command.endsWith('--json'),
+        ),
+      ).toBe(true);
+    },
+    CI_TEST_TIMEOUT,
+  );
+
+  test(
+    'prints the package version through the CLI',
+    async () => {
+      const packageJson = JSON.parse(
+        await fs.readFile(path.join('apps', 'cli', 'package.json'), 'utf8'),
+      ) as { version: string };
+      const { stdout } = await runCli(['--version'], {
+        cwd: path.resolve('.'),
+      });
+      expect(stdout.trim()).toBe(packageJson.version);
+    },
+    CI_TEST_TIMEOUT,
+  );
+
+  test(
     'prints command-specific help examples for source add',
     async () => {
       const { stdout } = await runCli(['source', 'add', '--help'], {
@@ -928,6 +966,18 @@ describe('update and cli flows', () => {
         'agentpm source add git@github.com:company/private-skills.git',
       );
       expect(stdout).not.toContain('agentpm push --all');
+    },
+    CI_TEST_TIMEOUT,
+  );
+
+  test(
+    'prints push --all in push command help',
+    async () => {
+      const { stdout } = await runCli(['push', '--help'], {
+        cwd: path.resolve('.'),
+      });
+      expect(stdout).toContain('--all');
+      expect(stdout).toContain('agentpm push --all');
     },
     CI_TEST_TIMEOUT,
   );
