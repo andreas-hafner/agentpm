@@ -120,6 +120,9 @@ export interface InstallOptions {
 
 export interface RemoveInstallOptions {
   purge?: boolean;
+  adapter?: AdapterId | undefined;
+  scope?: InstallScope | undefined;
+  targetPath?: string | undefined;
 }
 
 export interface UpdateOptions {
@@ -679,7 +682,7 @@ export class AgentPmService {
     options: RemoveInstallOptions = {},
   ): Promise<InstallRecord> {
     await this.initialize();
-    const install = await this.resolveProviderInstall(identifier);
+    const install = await this.resolveProviderInstall(identifier, options);
     return this.removeInstallRecord(install, options);
   }
 
@@ -1057,16 +1060,29 @@ export class AgentPmService {
     options: RemoveInstallOptions = {},
   ): Promise<InstallRecord> {
     await this.initialize();
-    const installs = this.db.listInstallsByName(name);
+    const installs = this.filterRemoveCandidates(
+      this.db.listInstallsByName(name),
+      options,
+    );
     if (installs.length === 0) {
       throw new AgentPmError(`No install named "${name}" found.`);
     }
 
     let install = installs[0]!;
     if (installs.length > 1) {
+      const available = this.formatRemoveCandidates(installs);
+      const hasExplicitFilter =
+        Boolean(options.adapter) ||
+        Boolean(options.scope) ||
+        Boolean(options.targetPath);
       if (!this.prompts.selectOne) {
         throw new AgentPmError(
-          `Multiple installs named "${name}" found. Re-run interactively to choose one.`,
+          `Multiple installs named "${name}" found. Re-run with --target, --scope, or --path to choose one.\n\nMatches:\n${available}`,
+        );
+      }
+      if (hasExplicitFilter) {
+        throw new AgentPmError(
+          `Multiple installs named "${name}" still match the supplied filters. Add --path to choose one.\n\nMatches:\n${available}`,
         );
       }
 
@@ -2193,7 +2209,7 @@ export class AgentPmService {
     const resolvedPath = path.resolve(this.cwd, token);
     let name: string;
     let contentPath: string;
-    let originAdapter: AdapterId;
+    let originAdapter: AdapterId | null;
     let scopeRoot: string;
 
     const resolvedStat = await fs.lstat(resolvedPath).catch(() => null);
@@ -2219,15 +2235,35 @@ export class AgentPmService {
       scopeRoot = this.cwd;
     }
 
+    const libraryPath = path.join(this.paths.skillsLibraryDir, name);
+    const resolvedContentPath = path.resolve(contentPath);
+    const resolvedLibraryPath = path.resolve(libraryPath);
+    const libraryRelativePath = path.relative(
+      path.resolve(this.paths.skillsLibraryDir),
+      resolvedContentPath,
+    );
+    const originIsLibraryEntry =
+      resolvedContentPath === resolvedLibraryPath &&
+      libraryRelativePath !== '' &&
+      !libraryRelativePath.startsWith('..') &&
+      !path.isAbsolute(libraryRelativePath);
+
     // Fan-out lands beside the origin: all agents share the same environment so
-    // a skill adopted from `~/.claude` also appears in `~/.codex`, etc.
+    // a skill adopted from `~/.claude` also appears in `~/.codex`, etc. When
+    // the origin is already the canonical library entry, fan-out globally
+    // instead of trying to replace the library path with a link to itself.
+    const effectiveScopeRoot = originIsLibraryEntry ? os.homedir() : scopeRoot;
     const scope: InstallScope =
-      path.resolve(scopeRoot) === path.resolve(os.homedir())
+      path.resolve(effectiveScopeRoot) === path.resolve(os.homedir())
         ? 'global'
         : 'project';
-    const effectiveScopeRoot = scopeRoot;
+    if (originIsLibraryEntry) {
+      originAdapter = null;
+      warnings.push(
+        `"${name}" is already in the AgentPM library; AgentPM will only link it into the selected agents.`,
+      );
+    }
 
-    const libraryPath = path.join(this.paths.skillsLibraryDir, name);
     const originStat = await fs.lstat(contentPath).catch(() => null);
     const originIsLink = originStat?.isSymbolicLink() ?? false;
 
@@ -2267,7 +2303,7 @@ export class AgentPmService {
 
     // Replace the original location with a managed symlink into the library so
     // there is no duplicated content.
-    if (!originIsLink) {
+    if (!originIsLink && !originIsLibraryEntry) {
       await fs.rm(contentPath, { recursive: true, force: true });
       await ensureManagedLink(contentPath, libraryPath);
     }
@@ -2279,14 +2315,18 @@ export class AgentPmService {
     );
     const revision = await computeTreeSignature(libraryPath);
 
-    // Always record the origin agent, plus any chosen additional agents.
+    // Always record the origin agent when there is one, plus any chosen
+    // additional agents.
     const requestedAgents = await this.chooseAgentTargets(
       effectiveScopeRoot,
       options.agents,
       options.yes ?? false,
     );
     const agents = Array.from(
-      new Set<AdapterId>([originAdapter, ...requestedAgents]),
+      new Set<AdapterId>([
+        ...(originAdapter ? [originAdapter] : []),
+        ...requestedAgents,
+      ]),
     );
 
     const installs = await this.linkSkillIntoAgents({
@@ -3984,14 +4024,33 @@ export class AgentPmService {
 
   private async resolveProviderInstall(
     identifier: string,
+    options: RemoveInstallOptions,
   ): Promise<InstallRecord> {
-    const matches = this.resolveProviderInstalls([identifier]);
+    const matches = this.filterRemoveCandidates(
+      this.resolveProviderInstalls([identifier]),
+      options,
+    );
     if (matches.length === 1) {
       return matches[0]!;
     }
+    if (matches.length === 0) {
+      throw new AgentPmError(
+        `No skills.sh install matching "${identifier}" was found.`,
+      );
+    }
+    const available = this.formatRemoveCandidates(matches);
+    const hasExplicitFilter =
+      Boolean(options.adapter) ||
+      Boolean(options.scope) ||
+      Boolean(options.targetPath);
     if (!this.prompts.selectOne) {
       throw new AgentPmError(
-        `Multiple skills.sh installs match "${identifier}". Re-run interactively to choose one.`,
+        `Multiple skills.sh installs match "${identifier}". Re-run with --target, --scope, or --path to choose one.\n\nMatches:\n${available}`,
+      );
+    }
+    if (hasExplicitFilter) {
+      throw new AgentPmError(
+        `Multiple skills.sh installs still match "${identifier}" with the supplied filters. Add --path to choose one.\n\nMatches:\n${available}`,
       );
     }
     return this.prompts.selectOne(
@@ -4005,6 +4064,37 @@ export class AgentPmService {
         value: install,
       })),
     );
+  }
+
+  private filterRemoveCandidates(
+    installs: InstallRecord[],
+    options: RemoveInstallOptions,
+  ): InstallRecord[] {
+    return installs.filter((install) => {
+      if (options.adapter && install.adapter !== options.adapter) {
+        return false;
+      }
+      if (options.scope && install.scope !== options.scope) {
+        return false;
+      }
+      if (
+        options.targetPath &&
+        path.resolve(install.targetPath) !==
+          path.resolve(this.cwd, options.targetPath)
+      ) {
+        return false;
+      }
+      return true;
+    });
+  }
+
+  private formatRemoveCandidates(installs: InstallRecord[]): string {
+    return installs
+      .map(
+        (candidate) =>
+          `- ${candidate.name}: target=${candidate.adapter}, scope=${candidate.scope}, path=${candidate.targetPath}`,
+      )
+      .join('\n');
   }
 
   private async removeInstallRecord(

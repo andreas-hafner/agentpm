@@ -12,6 +12,7 @@ import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
 import { resolveTargetAddArgs } from './target-add.js';
 
 type AgentId = 'codex' | 'claude' | 'generic';
+type ScopeId = 'global' | 'project' | 'workspace';
 type QuickstartFlow = 'install' | 'team' | 'sync';
 
 function collect(value: string, previous: string[]): string[] {
@@ -39,6 +40,30 @@ function parseAgents(value: string | undefined): AgentId[] | undefined {
   return requested as AgentId[];
 }
 
+function parseAgent(value: string | undefined): AgentId | undefined {
+  const agents = parseAgents(value);
+  if (!agents) {
+    return undefined;
+  }
+  if (agents.length !== 1) {
+    throw new Error('--target accepts exactly one agent for this command.');
+  }
+  return agents[0];
+}
+
+function parseScope(value: string | undefined): ScopeId | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const scope = value.toLowerCase();
+  if (scope !== 'global' && scope !== 'project' && scope !== 'workspace') {
+    throw new Error(
+      'Unknown scope. Use one of: global, project, workspace.',
+    );
+  }
+  return scope;
+}
+
 const QUICKSTART_GUIDES: Record<
   QuickstartFlow,
   {
@@ -52,9 +77,9 @@ const QUICKSTART_GUIDES: Record<
     title: 'Install One Skill',
     goal: 'Find a skill and install it into your current machine or repo.',
     commands: [
-      'agentpm skills search typescript',
-      'agentpm skills install typescript --project',
-      'agentpm list',
+      'agentpm skills search typescript --json',
+      'agentpm skills install wshobson/agents@typescript-advanced-types --project --yes --json',
+      'agentpm list --json',
     ],
     notes: [
       'Use this when you want a one-off skill without managing a shared repo yet.',
@@ -65,10 +90,10 @@ const QUICKSTART_GUIDES: Record<
     title: 'Set Up a Team Repo',
     goal: 'Turn a repository into a reproducible team contract with agentpm.yaml.',
     commands: [
-      'agentpm source add travelhawk/skills-vault',
-      'agentpm install --from travelhawk/skills-vault --skill release-helper --project --add-source',
-      'agentpm init',
-      'agentpm sync',
+      'agentpm source add travelhawk/skills-vault --json',
+      'agentpm install --from travelhawk/skills-vault --skill release-helper --project --add-source --yes --json',
+      'agentpm init --json',
+      'agentpm sync --json',
     ],
     notes: [
       'Use this when your repo should declare required skills for everyone who clones it.',
@@ -79,9 +104,9 @@ const QUICKSTART_GUIDES: Record<
     title: 'Sync Skills Across Machines',
     goal: 'Publish canonical skills to a Git repo and pull them onto another device.',
     commands: [
-      'agentpm target add my-skills travelhawk/skills-vault --default',
-      'agentpm push',
-      'agentpm pull --from my-skills',
+      'agentpm target add my-skills travelhawk/skills-vault --default --json',
+      'agentpm push --all --to my-skills --json',
+      'agentpm pull --from my-skills --target codex,claude,generic --yes --json',
     ],
     notes: [
       'Use this when you want one canonical skill library that fans out to Codex, Claude, and generic agents.',
@@ -718,7 +743,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.9.0')
+  .version('0.9.2')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock());
@@ -892,10 +917,27 @@ skillsCmd
     'Installed skill name or owner/repo@skill selector',
   )
   .option('--purge', 'Also purge unused cache data')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
+  .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
-  .action(async (identifier: string, flags: { purge?: boolean; json?: boolean }) => {
+  .action(async (
+    identifier: string,
+    flags: {
+      purge?: boolean;
+      target?: string;
+      scope?: string;
+      path?: string;
+      json?: boolean;
+    },
+  ) => {
     const removed = await withService((service) =>
-      service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
+      service.removeProviderSkill(identifier, {
+        purge: Boolean(flags.purge),
+        adapter: parseAgent(flags.target),
+        scope: parseScope(flags.scope),
+        targetPath: flags.path,
+      }),
     );
     if (flags.json) {
       printSuccessJson('skills.remove', {
@@ -1480,10 +1522,27 @@ program
   .command('remove')
   .argument('<name>', 'Installed name')
   .option('--purge', 'Also purge unused cache data')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
+  .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
-  .action(async (name: string, flags: { purge?: boolean; json?: boolean }) => {
+  .action(async (
+    name: string,
+    flags: {
+      purge?: boolean;
+      target?: string;
+      scope?: string;
+      path?: string;
+      json?: boolean;
+    },
+  ) => {
     const removed = await withService((service) =>
-      service.removeInstall(name, { purge: Boolean(flags.purge) }),
+      service.removeInstall(name, {
+        purge: Boolean(flags.purge),
+        adapter: parseAgent(flags.target),
+        scope: parseScope(flags.scope),
+        targetPath: flags.path,
+      }),
     );
     if (flags.json) {
       printSuccessJson('remove', {
@@ -1538,6 +1597,7 @@ addExamples(
     .option('--to <target>', 'Target id or locator')
     .option('-m, --message <message>', 'Commit message if changes exist')
     .option('--dry-run', 'Show what would be pushed without doing it')
+    .option('--all', 'Push all detected skills and agents without prompting')
     .option(
       '--preserve-layout',
       'Keep native target-relative paths instead of normalizing to skills/<name>',
@@ -1550,6 +1610,7 @@ addExamples(
           to?: string;
           message?: string;
           dryRun?: boolean;
+          all?: boolean;
           preserveLayout?: boolean;
           json?: boolean;
         },
@@ -1561,6 +1622,7 @@ addExamples(
               target: flags.to,
               message: flags.message,
               dryRun: flags.dryRun,
+              all: flags.all,
               preserveLayout: flags.preserveLayout,
             }),
           {
@@ -1595,6 +1657,7 @@ addExamples(
     ),
   [
     'agentpm push',
+    'agentpm push --all',
     'agentpm push skill-a --to travelhawk/skills-vault',
     'agentpm push --preserve-layout',
   ],

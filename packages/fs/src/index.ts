@@ -111,6 +111,10 @@ export async function diffTrees(previousRoot: string, nextRoot: string): Promise
 export async function ensureManagedLink(linkPath: string, targetPath: string): Promise<void> {
   await ensureDir(path.dirname(linkPath));
 
+  if (path.resolve(linkPath) === path.resolve(targetPath)) {
+    throw new AgentPmError(`Refusing to create a managed link to itself: ${linkPath}`);
+  }
+
   if (await pathExists(linkPath)) {
     const stats = await fs.lstat(linkPath);
     if (!stats.isSymbolicLink()) {
