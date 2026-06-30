@@ -12,6 +12,7 @@ import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
 import { resolveTargetAddArgs } from './target-add.js';
 
 type AgentId = 'codex' | 'claude' | 'generic';
+type ScopeId = 'global' | 'project' | 'workspace';
 type QuickstartFlow = 'install' | 'team' | 'sync';
 
 function collect(value: string, previous: string[]): string[] {
@@ -37,6 +38,30 @@ function parseAgents(value: string | undefined): AgentId[] | undefined {
     );
   }
   return requested as AgentId[];
+}
+
+function parseAgent(value: string | undefined): AgentId | undefined {
+  const agents = parseAgents(value);
+  if (!agents) {
+    return undefined;
+  }
+  if (agents.length !== 1) {
+    throw new Error('--target accepts exactly one agent for this command.');
+  }
+  return agents[0];
+}
+
+function parseScope(value: string | undefined): ScopeId | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const scope = value.toLowerCase();
+  if (scope !== 'global' && scope !== 'project' && scope !== 'workspace') {
+    throw new Error(
+      'Unknown scope. Use one of: global, project, workspace.',
+    );
+  }
+  return scope;
 }
 
 const QUICKSTART_GUIDES: Record<
@@ -722,7 +747,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.9.1')
+  .version('0.9.2')
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock());
@@ -896,10 +921,27 @@ skillsCmd
     'Installed skill name or owner/repo@skill selector',
   )
   .option('--purge', 'Also purge unused cache data')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
+  .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
-  .action(async (identifier: string, flags: { purge?: boolean; json?: boolean }) => {
+  .action(async (
+    identifier: string,
+    flags: {
+      purge?: boolean;
+      target?: string;
+      scope?: string;
+      path?: string;
+      json?: boolean;
+    },
+  ) => {
     const removed = await withService((service) =>
-      service.removeProviderSkill(identifier, { purge: Boolean(flags.purge) }),
+      service.removeProviderSkill(identifier, {
+        purge: Boolean(flags.purge),
+        adapter: parseAgent(flags.target),
+        scope: parseScope(flags.scope),
+        targetPath: flags.path,
+      }),
     );
     if (flags.json) {
       printSuccessJson('skills.remove', {
@@ -1484,10 +1526,27 @@ program
   .command('remove')
   .argument('<name>', 'Installed name')
   .option('--purge', 'Also purge unused cache data')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
+  .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
-  .action(async (name: string, flags: { purge?: boolean; json?: boolean }) => {
+  .action(async (
+    name: string,
+    flags: {
+      purge?: boolean;
+      target?: string;
+      scope?: string;
+      path?: string;
+      json?: boolean;
+    },
+  ) => {
     const removed = await withService((service) =>
-      service.removeInstall(name, { purge: Boolean(flags.purge) }),
+      service.removeInstall(name, {
+        purge: Boolean(flags.purge),
+        adapter: parseAgent(flags.target),
+        scope: parseScope(flags.scope),
+        targetPath: flags.path,
+      }),
     );
     if (flags.json) {
       printSuccessJson('remove', {

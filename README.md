@@ -114,6 +114,7 @@ Rules:
 - Adopt local skills one explicit path at a time, for example `agentpm adopt ~/.claude/skills/my-skill --target codex,generic --yes --json`.
 - When pulling a shared library, use `agentpm pull --from <target-id-or-repo> --target codex,claude,generic --yes --json`.
 - When pushing a local canonical library, use `agentpm push --all --to <target-id-or-repo> --message "Sync skills" --json`.
+- When removing a skill that may be installed into multiple targets, choose one explicitly, for example `agentpm remove my-skill --target codex --scope project --json` or `agentpm remove my-skill --path <exact-target-path> --json`.
 - After changes, run `agentpm doctor --json`; if safe fixes are reported, run `agentpm doctor --fix --yes --json`.
 - Never delete or overwrite unmanaged skill folders unless AgentPM explicitly confirms they are managed links or the user has approved that exact path.
 - Finish with a concise report: installed AgentPM version, adopted skills, linked targets, pushed revision if any, doctor status, warnings, and commands run.
@@ -125,7 +126,8 @@ Suggested workflow:
 4. Adopt explicit local skill paths with `agentpm adopt <path> --target codex,claude,generic --yes --json`.
 5. Pull shared skills with `agentpm pull --from <target-id-or-repo> --target codex,claude,generic --yes --json`.
 6. Push the canonical library with `agentpm push --all --to <target-id-or-repo> --message "Sync skills" --json`.
-7. Validate with `agentpm doctor --json` and, if appropriate, `agentpm doctor --fix --yes --json`.
+7. Remove one duplicate install with `agentpm remove <name> --target <agent> --scope <scope> --json` or `agentpm remove <name> --path <exact-target-path> --json`.
+8. Validate with `agentpm doctor --json` and, if appropriate, `agentpm doctor --fix --yes --json`.
 ```
 
 Agent-safe examples:
@@ -138,6 +140,7 @@ agentpm doctor --json
 agentpm adopt ~/.claude/skills/release-helper --target codex,generic --yes --json
 agentpm pull --from my-skills --target codex,claude,generic --yes --json
 agentpm push --all --to my-skills --message "Sync skills" --json
+agentpm remove release-helper --target codex --scope project --json
 agentpm doctor --fix --yes --json
 ```
 
@@ -209,6 +212,7 @@ For scripts, CI, and local tooling, prefer `--json`:
 agentpm quickstart --json
 agentpm source list --json
 agentpm install release-helper --project --json
+agentpm remove release-helper --target codex --scope project --json
 agentpm update --json
 agentpm update --yes --json
 agentpm doctor --json

@@ -981,4 +981,17 @@ describe('update and cli flows', () => {
     },
     CI_TEST_TIMEOUT,
   );
+
+  test(
+    'prints non-interactive remove filters in remove command help',
+    async () => {
+      const { stdout } = await runCli(['remove', '--help'], {
+        cwd: path.resolve('.'),
+      });
+      expect(stdout).toContain('--target <agent>');
+      expect(stdout).toContain('--scope <scope>');
+      expect(stdout).toContain('--path <path>');
+    },
+    CI_TEST_TIMEOUT,
+  );
 });

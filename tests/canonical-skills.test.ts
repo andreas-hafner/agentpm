@@ -234,6 +234,77 @@ describe('canonical skill library', () => {
     }
   }, CI_TEST_TIMEOUT);
 
+  test('remove can disambiguate duplicate fan-out installs by target without a prompt', async () => {
+    const homeDir = await makeTempDir('agentpm-canon-home-');
+    const envDir = await makeTempDir('agentpm-canon-env-');
+
+    const originPath = path.join(envDir, '.claude', 'skills', 'helper');
+    await writeFile(path.join(originPath, 'SKILL.md'), '# helper skill\n');
+
+    const service = new AgentPmService({
+      cwd: envDir,
+      env: { ...GIT_ENV, AGENTPM_HOME: homeDir },
+    });
+    try {
+      await service.adopt(originPath, {
+        agents: ['codex', 'generic'],
+        yes: true,
+      });
+
+      const removed = await service.removeInstall('helper', {
+        adapter: 'codex',
+      });
+
+      expect(removed.adapter).toBe('codex');
+      await expect(
+        service.removeInstall('helper', { adapter: 'codex' }),
+      ).rejects.toThrow(/No install named "helper" found/);
+
+      const libraryEntry = path.join(homeDir, 'skills', 'helper');
+      expect(
+        await fs.readFile(path.join(libraryEntry, 'SKILL.md'), 'utf8'),
+      ).toContain('# helper skill');
+
+      const codexLink = path.join(envDir, '.codex', 'skills', 'helper');
+      const claudeLink = path.join(envDir, '.claude', 'skills', 'helper');
+      const genericLink = path.join(envDir, '.agents', 'skills', 'helper');
+
+      await expect(fs.lstat(codexLink)).rejects.toThrow();
+      for (const link of [claudeLink, genericLink]) {
+        expect((await fs.lstat(link)).isSymbolicLink()).toBe(true);
+        expect(await realpath(link)).toBe(await realpath(libraryEntry));
+      }
+    } finally {
+      service.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
+  test('remove reports filter flags when duplicate installs cannot be disambiguated non-interactively', async () => {
+    const homeDir = await makeTempDir('agentpm-canon-home-');
+    const envDir = await makeTempDir('agentpm-canon-env-');
+
+    const originPath = path.join(envDir, '.claude', 'skills', 'helper');
+    await writeFile(path.join(originPath, 'SKILL.md'), '# helper skill\n');
+
+    const service = new AgentPmService({
+      cwd: envDir,
+      env: { ...GIT_ENV, AGENTPM_HOME: homeDir },
+      prompts: {},
+    });
+    try {
+      await service.adopt(originPath, {
+        agents: ['codex', 'generic'],
+        yes: true,
+      });
+
+      await expect(service.removeInstall('helper')).rejects.toThrow(
+        /--target, --scope, or --path/,
+      );
+    } finally {
+      service.close();
+    }
+  }, CI_TEST_TIMEOUT);
+
   test('adopt by name from the library fans out without replacing the library with a self-link', async () => {
     const homeDir = await makeTempDir('agentpm-canon-home-');
     const envDir = await makeTempDir('agentpm-canon-env-');

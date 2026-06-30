@@ -8,17 +8,12 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
-## [0.9.1] - 2026-06-30
-
+## [0.9.2] - 2026-06-30
 
 ### Added
 
 - Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
 - Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
-
-
-### Added
-
 - Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
 - Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
 
@@ -26,6 +21,7 @@ This repo uses a simple release workflow:
 
 - Prevented `agentpm adopt <name>` from replacing an existing canonical library skill with a self-link when the command is run from `AGENTPM_HOME`; re-adopting a library skill now only links it into the selected agent targets.
 - Restored the documented `agentpm push --all` CLI flag so canonical mass-push workflows can run without the interactive multi-select prompt.
+- Added `--target`, `--scope`, and `--path` filters to `agentpm remove` and `agentpm skills remove` so agents can remove one duplicate install without a TTY picker.
 
 ## [0.9.0] - 2026-06-10
 
