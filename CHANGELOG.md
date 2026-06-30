@@ -10,6 +10,7 @@ This repo uses a simple release workflow:
 
 ## [0.9.1] - 2026-06-29
 
+
 ### Added
 
 - Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
