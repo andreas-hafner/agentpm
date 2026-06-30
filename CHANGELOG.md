@@ -8,7 +8,13 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
-## [0.9.1] - 2026-06-29
+## [0.9.1] - 2026-06-30
+
+
+### Added
+
+- Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
+- Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
 
 
 ### Added
