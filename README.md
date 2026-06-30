@@ -91,6 +91,56 @@ agentpm pull --from my-skills
 
 Add `--target codex,claude,generic` to control which runtimes receive pulled skills.
 
+## For AI Agents
+
+AgentPM is safe to drive from another coding agent when the agent avoids prompt-driven flows. Use explicit selectors, explicit targets, `--yes` for confirmations, `--all` for bulk push, and `--json` whenever output will be parsed.
+
+Copy this prompt into an AI coding agent that has shell access:
+
+```text
+You are organizing this machine's AI coding skills with AgentPM. Work non-interactively: never rely on TTY menus, pickers, or confirmation prompts. Prefer commands with --json for inspection, and use explicit flags such as --from, --skill, --target, --yes, --all, --project, or --global.
+
+Goal:
+- Install AgentPM if it is missing.
+- Inspect the current AgentPM state.
+- Adopt existing local skills from Codex, Claude, and generic agent folders into AgentPM's canonical library.
+- Optionally sync the canonical library to the configured Git target.
+- Leave the system in a recoverable state and report exactly what changed.
+
+Rules:
+- Before changing anything, run `agentpm --version`, `agentpm --help`, `agentpm quickstart --json`, `agentpm target list --json`, `agentpm source list --json`, `agentpm list --json`, and `agentpm doctor --json`.
+- If `agentpm` is not installed, install it with `npm install -g @travelhawk/agentpm`, then rerun the inspection commands.
+- Do not run commands that open selection menus. If a command would need a choice, rerun it with explicit names, paths, `--from`, `--skill`, `--target codex,claude,generic`, `--yes`, or `--all`.
+- Adopt local skills one explicit path at a time, for example `agentpm adopt ~/.claude/skills/my-skill --target codex,generic --yes --json`.
+- When pulling a shared library, use `agentpm pull --from <target-id-or-repo> --target codex,claude,generic --yes --json`.
+- When pushing a local canonical library, use `agentpm push --all --to <target-id-or-repo> --message "Sync skills" --json`.
+- After changes, run `agentpm doctor --json`; if safe fixes are reported, run `agentpm doctor --fix --yes --json`.
+- Never delete or overwrite unmanaged skill folders unless AgentPM explicitly confirms they are managed links or the user has approved that exact path.
+- Finish with a concise report: installed AgentPM version, adopted skills, linked targets, pushed revision if any, doctor status, warnings, and commands run.
+
+Suggested workflow:
+1. Check whether AgentPM exists: `agentpm --version` and `agentpm --help`.
+2. If missing: `npm install -g @travelhawk/agentpm`.
+3. Inspect state with JSON: `agentpm quickstart --json`, `agentpm list --json`, `agentpm target list --json`, `agentpm doctor --json`.
+4. Adopt explicit local skill paths with `agentpm adopt <path> --target codex,claude,generic --yes --json`.
+5. Pull shared skills with `agentpm pull --from <target-id-or-repo> --target codex,claude,generic --yes --json`.
+6. Push the canonical library with `agentpm push --all --to <target-id-or-repo> --message "Sync skills" --json`.
+7. Validate with `agentpm doctor --json` and, if appropriate, `agentpm doctor --fix --yes --json`.
+```
+
+Agent-safe examples:
+
+```bash
+agentpm --version
+agentpm quickstart --json
+agentpm list --json
+agentpm doctor --json
+agentpm adopt ~/.claude/skills/release-helper --target codex,generic --yes --json
+agentpm pull --from my-skills --target codex,claude,generic --yes --json
+agentpm push --all --to my-skills --message "Sync skills" --json
+agentpm doctor --fix --yes --json
+```
+
 ## What AgentPM Does Well
 
 - `📦` Install skills from Git repositories, local folders, static registries, and the public `skills.sh` bridge.
