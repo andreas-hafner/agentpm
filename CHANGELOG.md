@@ -10,6 +10,12 @@ This repo uses a simple release workflow:
 
 ## [0.9.1] - 2026-06-29
 
+
+### Added
+
+- Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
+- Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
+
 ### Fixed
 
 - Prevented `agentpm adopt <name>` from replacing an existing canonical library skill with a self-link when the command is run from `AGENTPM_HOME`; re-adopting a library skill now only links it into the selected agent targets.
