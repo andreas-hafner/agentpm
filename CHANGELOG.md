@@ -14,6 +14,8 @@ This repo uses a simple release workflow:
 
 - Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
 - Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
+- Added a README prompt and command recipe for AI agents to install and operate AgentPM without TTY menus, using explicit selectors, `--yes`, `--all`, and `--json`.
+- Updated quickstart command recipes so `agentpm quickstart --json` returns non-interactive, agent-safe commands.
 
 ### Fixed
 

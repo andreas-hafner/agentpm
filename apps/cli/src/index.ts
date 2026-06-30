@@ -157,7 +157,11 @@ function printQuickstart(flow?: QuickstartFlow): void {
     console.log(`  ${style.bold(guide.title)} (${id})`);
     console.log(`    ${guide.goal}`);
     for (const command of guide.commands) {
-      console.log(`    ${symbols.arrow} ${style.cyan(command)}`);
+      // Strip --json and --yes for human readability in terminal output
+      const humanCommand = command
+        .replace(/\s--json(\s|$)/g, '$1')
+        .replace(/\s--yes(\s|$)/g, '$1');
+      console.log(`    ${symbols.arrow} ${style.cyan(humanCommand)}`);
     }
     for (const note of guide.notes) {
       console.log(`    ${symbols.bullet} ${note}`);
