@@ -1,6 +1,6 @@
 {
   "name": "@agentpm/core",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": true,
   "license": "MIT",
   "type": "module",
@@ -17,6 +17,7 @@
     "@agentpm/fs": "workspace:*",
     "@agentpm/git": "workspace:*",
     "@agentpm/registry": "workspace:*",
-    "@agentpm/shared": "workspace:*"
+    "@agentpm/shared": "workspace:*",
+    "js-yaml": "^4.1.0"
   }
 }

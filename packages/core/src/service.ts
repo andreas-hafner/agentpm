@@ -100,6 +100,13 @@ import {
   type ProviderSkillSearchResult,
 } from './provider-bridge.js';
 import { materializeAgents } from './agent-materializer.js';
+import {
+  deployBackupDirName,
+  loadDeployConfig,
+  runBaseStep,
+  runConsistencyStep,
+  runInstructionsStep,
+} from './deployer.js';
 import { exportLayout } from './exporter.js';
 
 export interface AddSourceResult {
@@ -133,6 +140,22 @@ export interface UpdateOptions {
   names?: string[] | undefined;
   apply?: boolean | undefined;
   yes?: boolean | undefined;
+}
+
+export interface DeployOptions {
+  /** Path to the deploy config YAML. Defaults to "./deploy.yaml" resolved against cwd. */
+  config?: string | undefined;
+  /** Report every action that would happen without touching the filesystem or running pull/export. */
+  dryRun?: boolean | undefined;
+}
+
+export interface DeployResult {
+  success: boolean;
+  configPath: string;
+  dryRun: boolean;
+  actions: string[];
+  warnings: string[];
+  skipped: string[];
 }
 
 export interface AgentPmServiceOptions {
@@ -2269,6 +2292,113 @@ export class AgentPmService {
       layout: options.layout,
       dest,
       ...result,
+    };
+  }
+
+  /**
+   * Apply a declarative `deploy.yaml`: copy/backup base config files, verify
+   * the skill library matches a pushed checkout, concatenate instruction
+   * files, then delegate to `pull()`/`export()`. See
+   * `packages/core/src/deployer.ts` for the `base`/`consistency`/
+   * `instructions` step implementations and config schema. Steps run in
+   * order (`base` -> `consistency` -> `instructions` -> `pull` -> `export`);
+   * a `consistency` mismatch aborts before later steps run.
+   */
+  async deploy(options: DeployOptions = {}): Promise<DeployResult> {
+    await this.initialize();
+    const configPath = path.resolve(this.cwd, options.config ?? 'deploy.yaml');
+    const dryRun = options.dryRun ?? false;
+    const { config } = await loadDeployConfig(configPath);
+
+    const actions: string[] = [];
+    const warnings: string[] = [];
+    const skipped: string[] = [];
+    const backupDir = path.join(
+      this.paths.homeDir,
+      'backups',
+      deployBackupDirName(nowIso()),
+    );
+
+    this.reportStatus('Applying base files...');
+    const baseResult = await runBaseStep({
+      entries: config.base,
+      backupDir,
+      dryRun,
+    });
+    actions.push(...baseResult.actions);
+
+    if (config.consistency) {
+      this.reportStatus('Checking skill library consistency...');
+      const consistencyResult = await runConsistencyStep(
+        config.consistency,
+        this.paths.skillsLibraryDir,
+      );
+      actions.push(...consistencyResult.actions);
+    }
+
+    this.reportStatus('Writing instructions files...');
+    const instructionsResult = await runInstructionsStep({
+      entries: config.instructions,
+      backupDir,
+      dryRun,
+    });
+    actions.push(...instructionsResult.actions);
+
+    if (config.pull) {
+      const agentsLabel =
+        config.pull.target && config.pull.target.length > 0
+          ? config.pull.target.join(',')
+          : '(auto-detect)';
+      if (dryRun) {
+        actions.push(
+          `[dry-run] pull planned: from ${config.pull.from ?? '(default target)'} into agents ${agentsLabel}`,
+        );
+      } else {
+        this.reportStatus('Pulling canonical skills...');
+        const pullResult = await this.pull({
+          target: config.pull.from,
+          agents: config.pull.target,
+          transform: config.pull.transform,
+          includeAgents: config.pull.agents,
+          yes: true,
+        });
+        actions.push(
+          `pull: ${pullResult.skills.length} skill(s), ${pullResult.agents.length} agent(s) from ${pullResult.sourceLocator}`,
+        );
+        warnings.push(...pullResult.warnings);
+      }
+    }
+
+    for (const entry of config.export) {
+      if (entry.optional && !(await pathExists(entry.dest))) {
+        skipped.push(
+          `export skip: ${entry.layout} -> ${entry.dest} (optional, dest missing)`,
+        );
+        continue;
+      }
+      if (dryRun) {
+        actions.push(`[dry-run] export planned: ${entry.layout} -> ${entry.dest}`);
+        continue;
+      }
+      this.reportStatus(`Exporting ${entry.layout} layout...`);
+      const exportResult = await this.export({
+        layout: entry.layout,
+        dest: entry.dest,
+        install: entry.install,
+      });
+      actions.push(
+        `export: ${entry.layout} -> ${entry.dest} (${exportResult.skills.length} skill(s), ${exportResult.agents.length} agent(s))`,
+      );
+      warnings.push(...exportResult.warnings);
+    }
+
+    return {
+      success: true,
+      configPath,
+      dryRun,
+      actions,
+      warnings,
+      skipped,
     };
   }
 

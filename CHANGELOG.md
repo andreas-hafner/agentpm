@@ -8,6 +8,12 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.12.0] - 2026-07-10
+
+### Added
+
+- New `deploy [--config <path>] [--dry-run] [--json]` command: declarative, cross-platform machine deployment from a `deploy.yaml` (base file sync with always/if-missing modes and automatic backups, library-vs-checkout consistency check, deterministic instructions concatenation without volatile content, then pull and export). Replaces per-machine shell deploy scripts; see docs/deploy.md.
+
 ## [0.11.0] - 2026-07-10
 
 ### Added
