@@ -1681,6 +1681,14 @@ addExamples(
     )
     .option('--project', 'Install into the current project instead of globally')
     .option('--yes', 'Skip prompts and install to all detected agents')
+    .option(
+      '--no-agents',
+      'Skip materializing .claude/agents entries into the current scope',
+    )
+    .option(
+      '--transform <kind>',
+      'Also generate an additional format for pulled agents (codex-agents)',
+    )
     .option('--json', 'Print machine-readable JSON')
     .action(
       async (
@@ -1690,9 +1698,16 @@ addExamples(
           target?: string;
           project?: boolean;
           yes?: boolean;
+          agents?: boolean;
+          transform?: string;
           json?: boolean;
         },
       ) => {
+        if (flags.transform && flags.transform !== 'codex-agents') {
+          throw new Error(
+            `Unknown transform "${flags.transform}". Use one of: codex-agents.`,
+          );
+        }
         const result = await withService(
           (service) =>
             service.pull({
@@ -1701,6 +1716,8 @@ addExamples(
               agents: parseAgents(flags.target),
               scope: flags.project ? 'project' : 'global',
               yes: flags.yes,
+              includeAgents: flags.agents,
+              transform: flags.transform as 'codex-agents' | undefined,
             }),
           { statusMessages: true },
         );
@@ -1718,6 +1735,11 @@ addExamples(
           for (const install of result.installs) {
             console.log(
               `  ${symbols.bullet} ${style.green(install.name)} ${style.gray('->')} ${install.targetPath}`,
+            );
+          }
+          for (const agentName of result.agents) {
+            console.log(
+              `  ${symbols.bullet} ${style.green(agentName)} ${style.gray('->')} .claude/agents`,
             );
           }
           for (const warning of result.warnings) {

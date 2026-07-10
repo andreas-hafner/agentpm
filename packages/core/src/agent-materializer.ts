@@ -1,0 +1,181 @@
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+import {
+  isGeneratedCodexAgentFile,
+  transformClaudeAgentToCodexToml,
+} from '@agentpm/adapters';
+import type { AgentPmDatabase } from '@agentpm/db';
+import { ensureDir, walkFiles } from '@agentpm/fs';
+import {
+  displayNameFromLocator,
+  makeId,
+  nowIso,
+  toPosixPath,
+  type DetectedEntry,
+  type InstallScope,
+  type SourceRecord,
+} from '@agentpm/shared';
+
+const CLAUDE_AGENTS_ROOT = path.join('.claude', 'agents');
+const CODEX_AGENTS_ROOT = path.join('.codex', 'agents');
+
+export interface MaterializeAgentsParams {
+  /** Absolute path to the checked-out canonical push target repository. */
+  repoPath: string;
+  /** Detected `kind === 'agent'` entries to materialize. */
+  entries: DetectedEntry[];
+  scopeRoot: string;
+  scope: InstallScope;
+  db: AgentPmDatabase;
+  sourceLocator: string;
+  /** Opt-in additional materialization, in addition to the native copy. */
+  transform?: 'codex-agents' | undefined;
+}
+
+export interface MaterializeAgentsResult {
+  agents: string[];
+  warnings: string[];
+}
+
+function ensureAgentSource(db: AgentPmDatabase, locator: string): SourceRecord {
+  const id = makeId('src', 'git', locator);
+  const existing = db.getSource(id);
+  if (existing) {
+    return existing;
+  }
+  const now = nowIso();
+  return db.upsertSource({
+    id,
+    kind: 'git',
+    locator,
+    normalizedLocator: locator,
+    displayName: displayNameFromLocator(locator),
+    metadata: {},
+    createdAt: now,
+    updatedAt: now,
+  });
+}
+
+async function copyEntry(sourcePath: string, destPath: string): Promise<void> {
+  await fs.rm(destPath, { recursive: true, force: true });
+
+  const stats = await fs.stat(sourcePath);
+  if (stats.isFile()) {
+    await ensureDir(path.dirname(destPath));
+    await fs.copyFile(sourcePath, destPath);
+    return;
+  }
+
+  await ensureDir(destPath);
+  const files = await walkFiles(sourcePath);
+  for (const file of files) {
+    const relative = path.relative(sourcePath, file);
+    const out = path.join(destPath, relative);
+    await ensureDir(path.dirname(out));
+    await fs.copyFile(file, out);
+  }
+}
+
+/**
+ * Copy each detected `agent` entry from the canonical push target into
+ * `<scopeRoot>/.claude/agents/<basename>` and record an install per entry.
+ * Unlike skills, agents are copied (not symlinked): the copy is meant to be
+ * committed as a regular project file.
+ */
+export async function materializeAgents(
+  params: MaterializeAgentsParams,
+): Promise<MaterializeAgentsResult> {
+  const warnings: string[] = [];
+  const agentNames: string[] = [];
+
+  if (params.entries.length === 0) {
+    return { agents: agentNames, warnings };
+  }
+
+  const source = ensureAgentSource(params.db, params.sourceLocator);
+
+  for (const entry of params.entries) {
+    const sourcePath = path.join(params.repoPath, entry.relativePath);
+    const destName =
+      entry.entryType === 'file'
+        ? path.basename(entry.relativePath)
+        : entry.name;
+    const targetPath = path.join(
+      params.scopeRoot,
+      CLAUDE_AGENTS_ROOT,
+      destName,
+    );
+
+    await copyEntry(sourcePath, targetPath);
+    agentNames.push(entry.name);
+
+    const now = nowIso();
+    params.db.saveInstall({
+      id: makeId(
+        'inst',
+        source.id,
+        entry.name,
+        params.scope,
+        params.scopeRoot,
+        'claude',
+        'agent',
+      ),
+      name: entry.name,
+      sourceId: source.id,
+      catalogEntryId: null,
+      adapter: 'claude',
+      scope: params.scope,
+      scopeRoot: params.scopeRoot,
+      targetPath,
+      linkTarget: sourcePath,
+      sourceRelativePath: entry.relativePath,
+      sourceRootRelativePath: toPosixPath(CLAUDE_AGENTS_ROOT),
+      selectedItems: [entry.name],
+      contentKind: 'git',
+      contentLocator: params.sourceLocator,
+      contentRef: null,
+      cacheKey: null,
+      installedRevision: null,
+      layoutSignature: '',
+      metadata: { agent: true, copy: true },
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    if (params.transform !== 'codex-agents') {
+      continue;
+    }
+    if (entry.entryType !== 'file') {
+      warnings.push(
+        `Skipped Codex transform for "${entry.name}": only flat .claude/agents/<name>.md entries can be transformed.`,
+      );
+      continue;
+    }
+
+    try {
+      const markdown = await fs.readFile(sourcePath, 'utf8');
+      const { fileName, toml } = transformClaudeAgentToCodexToml(markdown);
+      const tomlPath = path.join(params.scopeRoot, CODEX_AGENTS_ROOT, fileName);
+      const existingToml = await fs.readFile(tomlPath, 'utf8').catch(() => null);
+      if (existingToml !== null && !isGeneratedCodexAgentFile(existingToml)) {
+        warnings.push(
+          `Skipped Codex transform for "${entry.name}": ${toPosixPath(
+            path.relative(params.scopeRoot, tomlPath),
+          )} already exists and was not generated by AgentPM.`,
+        );
+        continue;
+      }
+      await ensureDir(path.dirname(tomlPath));
+      await fs.writeFile(tomlPath, toml, 'utf8');
+    } catch (error) {
+      warnings.push(
+        `Skipped Codex transform for "${entry.name}": ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  return { agents: agentNames, warnings };
+}

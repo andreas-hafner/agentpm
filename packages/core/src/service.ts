@@ -97,6 +97,7 @@ import {
   searchProviderSkills,
   type ProviderSkillSearchResult,
 } from './provider-bridge.js';
+import { materializeAgents } from './agent-materializer.js';
 
 export interface AddSourceResult {
   source: SourceRecord;
@@ -1737,6 +1738,13 @@ export class AgentPmService {
         );
         await fs.rm(destinationRoot, { recursive: true, force: true });
 
+        const sourceStats = await fs.stat(entry.sourcePath);
+        if (sourceStats.isFile()) {
+          await fs.mkdir(path.dirname(destinationRoot), { recursive: true });
+          await fs.copyFile(entry.sourcePath, destinationRoot);
+          continue;
+        }
+
         const files = await walkFiles(entry.sourcePath);
         for (const file of files) {
           const relative = path.relative(entry.sourcePath, file);
@@ -1902,6 +1910,14 @@ export class AgentPmService {
 
   private async copyTreeInto(src: string, dest: string): Promise<void> {
     await fs.rm(dest, { recursive: true, force: true });
+
+    const srcStats = await fs.stat(src);
+    if (srcStats.isFile()) {
+      await ensureDir(path.dirname(dest));
+      await fs.copyFile(src, dest);
+      return;
+    }
+
     const files = await walkFiles(src);
     for (const file of files) {
       const relative = path.relative(src, file);
@@ -2117,41 +2133,49 @@ export class AgentPmService {
       ).stdout.trim() || null;
 
     const report = await inspectRepository(repoPath, target.locator, 'git');
-    const available = listInstallableEntries(report).filter(
+    const availableSkills = listInstallableEntries(report).filter(
       (entry) => entry.kind === 'skill',
     );
-    if (available.length === 0) {
+    const includeAgents = options.includeAgents ?? true;
+    const availableAgents = includeAgents
+      ? listInstallableEntries(report).filter((entry) => entry.kind === 'agent')
+      : [];
+    if (availableSkills.length === 0 && availableAgents.length === 0) {
       throw new AgentPmError(
-        `No canonical skills were found in ${target.locator}.`,
+        `No canonical skills or agents were found in ${target.locator}.`,
       );
     }
 
     const requested = options.skills?.filter((name) => name.length > 0) ?? [];
-    const selected =
+    const selectedSkills =
       requested.length > 0
-        ? available.filter((entry) => requested.includes(entry.name))
-        : available;
+        ? availableSkills.filter((entry) => requested.includes(entry.name))
+        : availableSkills;
 
-    if (selected.length === 0) {
+    if (requested.length > 0 && selectedSkills.length === 0) {
       throw new AgentPmError(
-        `None of the requested skills were found. Available: ${available
+        `None of the requested skills were found. Available: ${availableSkills
           .map((entry) => entry.name)
           .join(', ')}`,
       );
     }
 
-    const agents = await this.chooseAgentTargets(
-      scopeRoot,
-      options.agents,
-      options.yes ?? false,
-    );
-    if (agents.length === 0) {
+    const agents =
+      selectedSkills.length > 0
+        ? await this.chooseAgentTargets(
+            scopeRoot,
+            options.agents,
+            options.yes ?? false,
+          )
+        : [];
+    if (selectedSkills.length > 0 && agents.length === 0) {
       return {
         success: true,
         sourceLocator: target.locator,
         revision,
         skills: [],
         installs: [],
+        agents: [],
         warnings: ['No agents selected.'],
       };
     }
@@ -2164,7 +2188,7 @@ export class AgentPmService {
 
     const installs: MaterializedSkillRecord[] = [];
     const pulledSkills: string[] = [];
-    for (const entry of selected) {
+    for (const entry of selectedSkills) {
       const libraryPath = path.join(this.paths.skillsLibraryDir, entry.name);
       this.reportStatus(`Updating "${entry.name}" in the skill library...`);
       await this.copyTreeInto(
@@ -2190,12 +2214,31 @@ export class AgentPmService {
       installs.push(...materialized);
     }
 
+    let pulledAgents: string[] = [];
+    if (availableAgents.length > 0) {
+      this.reportStatus(
+        `Materializing ${availableAgents.length === 1 ? availableAgents[0]!.name : `${availableAgents.length} agents`} into .claude/agents...`,
+      );
+      const materializedAgents = await materializeAgents({
+        repoPath,
+        entries: availableAgents,
+        scopeRoot,
+        scope,
+        db: this.db,
+        sourceLocator: target.locator,
+        transform: options.transform,
+      });
+      pulledAgents = materializedAgents.agents;
+      warnings.push(...materializedAgents.warnings);
+    }
+
     return {
       success: true,
       sourceLocator: target.locator,
       revision,
       skills: pulledSkills,
       installs,
+      agents: pulledAgents,
       warnings,
     };
   }

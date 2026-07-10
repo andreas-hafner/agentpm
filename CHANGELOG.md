@@ -8,6 +8,19 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.10.0] - 2026-07-10
+
+### Added
+
+- Agent support: `push` now detects flat agent files (`.claude/agents/*.md`) in addition to directory-based agents, and pushes them to the target repository in their native layout.
+- `pull` now materializes detected agents from the target repository into `<scope>/.claude/agents/` (copies, recorded as installs); repositories containing only agents no longer fail with "No pushable skills or agents were detected".
+- New `pull` flags: `--no-agents` to skip agent materialization, and `--transform codex-agents` to additionally generate Codex agent TOMLs (`.codex/agents/<name>.toml`) from Claude agent markdown (frontmatter name/description/effort plus optional `sandbox` field; body becomes `developer_instructions`). Generated files carry a marker comment and foreign files are never overwritten.
+- New pure transform module `@agentpm/adapters` `transforms/codex-agent.ts` and agent materializer helper in `@agentpm/core`.
+
+### Changed
+
+- `pull` prompts for skill fan-out targets only when the repository actually contains skills.
+
 ## [0.9.2] - 2026-06-30
 
 ### Added
