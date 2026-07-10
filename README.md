@@ -204,6 +204,16 @@ agentpm pull --from my-skills
 agentpm adopt .claude/skills/my-existing-skill --target codex,generic
 ```
 
+### Declarative Machine Deploy
+
+Replace per-machine shell deploy scripts with one declarative, cross-platform command driven
+entirely by a `deploy.yaml` file. See [Deploy](./docs/deploy.md) for the full config schema.
+
+```bash
+agentpm deploy --dry-run
+agentpm deploy
+```
+
 ## Automation and JSON Output
 
 For scripts, CI, and local tooling, prefer `--json`:
@@ -265,6 +275,7 @@ pnpm smoke
 - [Getting Started](./docs/getting-started.md)
 - [Architecture](./docs/architecture.md)
 - [Adapter Guide](./docs/adapter-guide.md)
+- [Deploy](./docs/deploy.md)
 - [Registry Guide](./docs/registry-guide.md)
 - [Concept](./docs/concept.md)
 - [Plan](./docs/plan.md)

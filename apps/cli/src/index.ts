@@ -1893,6 +1893,59 @@ addExamples(
   ],
 );
 
+addExamples(
+  program
+    .command('deploy')
+    .description(
+      'Apply a declarative deploy.yaml to this machine: base files, a library consistency check, instructions files, then pull/export',
+    )
+    .option(
+      '--config <path>',
+      'Path to the deploy config YAML (default: ./deploy.yaml)',
+    )
+    .option(
+      '--dry-run',
+      'Report planned actions without touching the filesystem or running pull/export',
+    )
+    .option('--json', 'Print machine-readable JSON')
+    .action(
+      async (flags: { config?: string; dryRun?: boolean; json?: boolean }) => {
+        const result = await withService(
+          (service) =>
+            service.deploy({
+              config: flags.config,
+              dryRun: flags.dryRun,
+            }),
+          { statusMessages: true },
+        );
+        if (flags.json) {
+          printSuccessJson('deploy', { result });
+          return;
+        }
+        if (result.success) {
+          console.log(
+            `\n${symbols.success} ${style.bold(result.dryRun ? 'Deploy (dry run)' : 'Deployed')} ${style.gray('from')} ${style.cyan(result.configPath)}`,
+          );
+          for (const action of result.actions) {
+            console.log(`  ${symbols.bullet} ${action}`);
+          }
+          for (const skip of result.skipped) {
+            console.log(`  ${symbols.info} ${style.gray(skip)}`);
+          }
+          for (const warning of result.warnings) {
+            console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+          }
+          console.log('');
+        }
+      },
+    ),
+  [
+    'agentpm deploy',
+    'agentpm deploy --dry-run',
+    'agentpm deploy --config ./ops/deploy.yaml --json',
+  ],
+);
+
 program.command('list').option('--json', 'Print machine-readable JSON').action(async (flags: { json?: boolean }) => {
   const installs = await withService((service) =>
     Promise.resolve(service.listInstalls()),
