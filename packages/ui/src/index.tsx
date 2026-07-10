@@ -326,9 +326,14 @@ export async function promptToSelectMany<T>(
 }
 
 export function createPromptApi(): PromptApi {
+  // Interactive pickers need a TTY. Omitting them in non-interactive runs
+  // lets every caller fall back to its context-specific error message
+  // (e.g. remove: "Re-run with --target, --scope, or --path").
+  const interactive = Boolean(process.stdout.isTTY && process.stdin.isTTY);
   return {
-    selectOne: promptToSelectOne,
-    selectMany: promptToSelectMany,
+    ...(interactive
+      ? { selectOne: promptToSelectOne, selectMany: promptToSelectMany }
+      : {}),
     confirm: promptToConfirm,
     input: promptToInput,
   };

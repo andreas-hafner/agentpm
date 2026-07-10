@@ -8,6 +8,18 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.12.3] - 2026-07-10
+
+### Fixed
+
+- Non-interactive runs (piped stdin, scripts, agents) that hit an
+  ambiguous selection - e.g. `remove <name>` matching multiple installs -
+  now fail with the caller's context-specific message naming the
+  disambiguating flags (`--target`, `--scope`, `--path`) and listing the
+  candidates, instead of the generic "Interactive selection requires a
+  TTY" error: `createPromptApi()` only provides the interactive pickers
+  when stdin and stdout are TTYs.
+
 ## [0.12.2] - 2026-07-10
 
 ### Fixed
