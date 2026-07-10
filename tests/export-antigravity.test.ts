@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { AgentPmService } from '@agentpm/core';
 
@@ -300,4 +300,100 @@ describe('export antigravity', () => {
     },
     CI_TEST_TIMEOUT,
   );
+  test(
+    'falls back to a plain copy when symlinks are not permitted (EPERM)',
+    async () => {
+      const library = await seedLibrary();
+      const destDir = path.join(
+        await makeTempDir('agentpm-export-dest-'),
+        'plugin',
+      );
+
+      const eperm = Object.assign(new Error('EPERM: operation not permitted'), {
+        code: 'EPERM',
+      });
+      const symlinkSpy = vi.spyOn(fs, 'symlink').mockRejectedValue(eperm);
+
+      const service = exportService(library);
+      try {
+        const result = await service.export({
+          layout: 'antigravity',
+          dest: destDir,
+          skills: ['demo'],
+        });
+
+        expect(result.skills).toEqual(['demo']);
+        expect(
+          result.warnings.some((warning) => warning.includes('as a copy')),
+        ).toBe(true);
+
+        const filePath = path.join(destDir, 'skills', 'demo', 'SKILL.md');
+        const stat = await fs.lstat(filePath);
+        expect(stat.isSymbolicLink()).toBe(false);
+        expect(await fs.readFile(filePath, 'utf8')).toBe('# demo skill\n');
+      } finally {
+        symlinkSpy.mockRestore();
+        service.close();
+      }
+    },
+    CI_TEST_TIMEOUT,
+  );
+
+  test(
+    'refreshes a stale copy-fallback file on re-export instead of warning',
+    async () => {
+      const library = await seedLibrary();
+      const destDir = path.join(
+        await makeTempDir('agentpm-export-dest-'),
+        'plugin',
+      );
+
+      const eperm = Object.assign(new Error('EPERM: operation not permitted'), {
+        code: 'EPERM',
+      });
+      const symlinkSpy = vi.spyOn(fs, 'symlink').mockRejectedValue(eperm);
+      const firstService = exportService(library);
+      try {
+        await firstService.export({
+          layout: 'antigravity',
+          dest: destDir,
+          skills: ['demo'],
+        });
+      } finally {
+        symlinkSpy.mockRestore();
+        firstService.close();
+      }
+
+      // The library skill evolves after the copy-fallback export.
+      await fs.writeFile(
+        path.join(library.homeDir, 'skills', 'demo', 'SKILL.md'),
+        '# demo skill v2\n',
+        'utf8',
+      );
+
+      const service = exportService(library);
+      try {
+        const result = await service.export({
+          layout: 'antigravity',
+          dest: destDir,
+          skills: ['demo'],
+        });
+
+        expect(result.skills).toEqual(['demo']);
+        expect(
+          result.warnings.some((warning) => warning.includes('foreign')),
+        ).toBe(false);
+        expect(
+          await fs.readFile(
+            path.join(destDir, 'skills', 'demo', 'SKILL.md'),
+            'utf8',
+          ),
+        ).toBe('# demo skill v2\n');
+      } finally {
+        service.close();
+      }
+    },
+    CI_TEST_TIMEOUT,
+  );
 });
+

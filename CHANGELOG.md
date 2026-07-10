@@ -8,6 +8,17 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.12.2] - 2026-07-10
+
+### Fixed
+
+- `agentpm export` (antigravity layout) no longer fails with `EPERM` on
+  systems where symlinks are not permitted (e.g. Windows without Developer
+  Mode): the per-skill `skills/<name>/SKILL.md` link falls back to a plain
+  copy with a warning. On re-export, a stale copy-fallback file is
+  recognized via the previous template content and refreshed instead of
+  being reported as a foreign file.
+
 ## [0.12.1] - 2026-07-10
 
 ### Changed

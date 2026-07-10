@@ -60,6 +60,11 @@ async function exportSkills(
       'SKILL.md',
     );
     await ensureDir(path.dirname(templatePath));
+    // Remember the previous template content so a copy-fallback file (from a
+    // system without symlink permission) can be told apart from a foreign file.
+    const previousTemplate = await fs
+      .readFile(templatePath, 'utf8')
+      .catch(() => null);
     await fs.copyFile(skillSourcePath, templatePath);
 
     const linkPath = path.join(params.dest, 'skills', name, 'SKILL.md');
@@ -68,6 +73,18 @@ async function exportSkills(
 
     const existingStat = await fs.lstat(linkPath).catch(() => null);
     if (existingStat && !existingStat.isSymbolicLink()) {
+      const existingContent = await fs.readFile(linkPath, 'utf8').catch(() => null);
+      const sourceContent = await fs.readFile(skillSourcePath, 'utf8');
+      if (existingContent === sourceContent) {
+        exported.push(name);
+        continue;
+      }
+      if (previousTemplate !== null && existingContent === previousTemplate) {
+        // Our own stale copy-fallback: refresh it instead of warning.
+        await fs.copyFile(skillSourcePath, linkPath);
+        exported.push(name);
+        continue;
+      }
       warnings.push(
         `Left "${relativeLinkPath}" untouched: a foreign file already exists there.`,
       );
@@ -85,7 +102,21 @@ async function exportSkills(
     }
 
     await ensureDir(path.dirname(linkPath));
-    await fs.symlink(linkTarget, linkPath, 'file');
+    try {
+      await fs.symlink(linkTarget, linkPath, 'file');
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === 'EPERM' || code === 'EACCES') {
+        // Windows without Developer Mode (or filesystems without symlink
+        // support): fall back to a plain copy of the skill file.
+        await fs.copyFile(skillSourcePath, linkPath);
+        warnings.push(
+          `Symlinks are not permitted on this system; wrote "${relativeLinkPath}" as a copy instead.`,
+        );
+      } else {
+        throw error;
+      }
+    }
     exported.push(name);
   }
 
