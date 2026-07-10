@@ -595,6 +595,11 @@ export {
   type CodexAgentTransformResult,
 } from './transforms/codex-agent.js';
 
+export {
+  parseFrontmatter,
+  type ParsedFrontmatter,
+} from './transforms/frontmatter.js';
+
 export async function detectInstallScripts(
   rootPath: string,
 ): Promise<DetectedScript[]> {

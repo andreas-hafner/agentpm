@@ -58,6 +58,39 @@ being overwritten. The transform maps frontmatter `name` (snake_cased), `descrip
 `sandbox: read-only|workspace-write` frontmatter field (default `read-only`), and puts the
 markdown body into a `developer_instructions` multi-line string.
 
+## Exporting to plugin layouts
+
+`agentpm export <layout> --dest <dir>` materializes the canonical skill library
+(`~/.agentpm/skills`) and managed agent installs into a destination directory using a
+named layout, independent of any agent's native install roots. Layouts are a simple
+registry in `packages/core/src/exporter.ts`; the first and only one is `antigravity`.
+
+```
+agentpm export antigravity --dest ./antigravity-plugin
+agentpm export antigravity --dest ./plugin --skills release-helper,audio-mastering
+agentpm export antigravity --dest ./plugin --no-agents
+agentpm export antigravity --dest ./plugin --install
+```
+
+The `antigravity` layout:
+
+- Writes every library skill's `SKILL.md` to `<dest>/templates/skills/<name>/SKILL.md`
+  (template files are overwritten freely on every run) and ensures a **relative**
+  symlink `<dest>/skills/<name>/SKILL.md -> ../../templates/skills/<name>/SKILL.md`.
+  `--skills a,b` limits the export to those skill names (default: all). If a **regular
+  file** (not a symlink) already exists at the `skills/<name>/SKILL.md` path, it is left
+  untouched and reported as a warning instead of being overwritten — nothing is ever
+  deleted.
+- Unless `--no-agents` is passed, reads every managed `claude` agent install (the ones
+  `agentpm pull` materializes via `materializeAgents`, global scope), strips the YAML
+  frontmatter, and writes the body to `<dest>/agents/<name>.md` (`name` is the
+  frontmatter `name` field, slugified; the file never contains the `---` delimiters).
+  The frontmatter parser is shared with the Codex agent transform
+  (`parseFrontmatter` in `@agentpm/adapters`, `packages/adapters/src/transforms/frontmatter.ts`).
+- `--install` spawns `agy plugin install <dest>` after a successful export. If the `agy`
+  binary is not on `PATH`, this is reported as a warning and the command still exits
+  successfully.
+
 ## Adapter contract
 
 Each adapter implements:

@@ -8,6 +8,13 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.11.0] - 2026-07-10
+
+### Added
+
+- New `export <layout> --dest <dir>` command materializing managed skills and agents into plugin layouts. First layout: `antigravity` (skills into `templates/skills/<name>/` with relative symlinks under `skills/`, agents as frontmatter-stripped markdown under `agents/`). Flags: `--skills <a,b>`, `--no-agents`, `--install` (runs `agy plugin install <dest>`; missing binary is a warning, not a failure). Foreign regular files are never overwritten.
+- Shared frontmatter parser (`@agentpm/adapters` `transforms/frontmatter.ts`) reused by the codex-agent transform and the exporter.
+
 ## [0.10.0] - 2026-07-10
 
 ### Added
