@@ -235,8 +235,8 @@ describe('codex agent transform', () => {
     expect(result.toml).toContain(
       'description = "Reviews code changes for quality issues."',
     );
-    expect(result.toml).toContain('model = "gpt-5.5"');
-    expect(result.toml).toContain('model_reasoning_effort = "medium"');
+    expect(result.toml).not.toContain('model =');
+    expect(result.toml).not.toContain('model_reasoning_effort');
     expect(result.toml).toContain('sandbox_mode = "read-only"');
     expect(result.toml).toContain('developer_instructions = """');
     expect(result.toml).toContain('You are a meticulous code reviewer.');
@@ -247,7 +247,7 @@ describe('codex agent transform', () => {
       '\n',
     );
     const result = transformClaudeAgentToCodexToml(markdown);
-    expect(result.toml).toContain('model_reasoning_effort = "high"');
+    expect(result.toml).not.toContain('model_reasoning_effort');
     expect(result.toml).toContain('sandbox_mode = "workspace-write"');
   });
 

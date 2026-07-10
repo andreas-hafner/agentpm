@@ -8,6 +8,12 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.12.1] - 2026-07-10
+
+### Changed
+
+- codex-agents transform no longer emits `model` or `model_reasoning_effort` into generated TOMLs: agents inherit both from the parent Codex session. Model entitlements (e.g. GPT-5.6 family) vary per account and must never be hard-pinned in generated files. Existing generated TOMLs are regenerated on the next pull/deploy.
+
 ## [0.12.0] - 2026-07-10
 
 ### Added
