@@ -53,10 +53,6 @@ export function transformClaudeAgentToCodexToml(
   const snakeName = toSnakeCase(rawName);
 
   const description = typeof data.description === 'string' ? data.description : '';
-  const effort =
-    typeof data.effort === 'string' && data.effort.trim().length > 0
-      ? data.effort.trim()
-      : 'high';
   const sandboxMode =
     typeof data.sandbox === 'string' && data.sandbox.trim() === 'workspace-write'
       ? 'workspace-write'
@@ -70,8 +66,9 @@ export function transformClaudeAgentToCodexToml(
     `${CODEX_AGENT_GENERATED_MARKER} .claude/agents/${snakeName}.md - do not edit`,
     `name = "${escapeTomlBasicString(snakeName)}"`,
     `description = "${escapeTomlBasicString(description)}"`,
-    `model = "gpt-5.5"`,
-    `model_reasoning_effort = "${escapeTomlBasicString(effort)}"`,
+    // Model and reasoning effort intentionally NOT emitted: agents inherit
+    // them from the parent Codex session (model entitlements like GPT-5.6
+    // vary per account and must never be hard-pinned in generated files).
     `sandbox_mode = "${sandboxMode}"`,
     `developer_instructions = """`,
     developerInstructions,
