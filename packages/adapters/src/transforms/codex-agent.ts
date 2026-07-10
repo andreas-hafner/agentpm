@@ -1,6 +1,6 @@
-import yaml from 'js-yaml';
-
 import { AgentPmError } from '@agentpm/shared';
+
+import { parseFrontmatter } from './frontmatter.js';
 
 /** Prefix identifying a file AgentPM generated. Never overwrite a file that lacks this marker. */
 export const CODEX_AGENT_GENERATED_MARKER =
@@ -10,22 +10,6 @@ export interface CodexAgentTransformResult {
   /** `<snake_case name>.toml`, relative to `.codex/agents/`. */
   fileName: string;
   toml: string;
-}
-
-const FRONTMATTER_PATTERN = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
-
-function parseFrontmatter(markdown: string): {
-  data: Record<string, unknown>;
-  body: string;
-} {
-  const match = markdown.match(FRONTMATTER_PATTERN);
-  if (!match) {
-    return { data: {}, body: markdown };
-  }
-  const parsed = yaml.load(match[1] ?? '');
-  const data =
-    parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : {};
-  return { data, body: markdown.slice(match[0].length) };
 }
 
 function toSnakeCase(value: string): string {

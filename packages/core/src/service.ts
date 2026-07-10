@@ -81,6 +81,8 @@ import {
   type PullResult,
   type AdoptOptions,
   type AdoptResult,
+  type ExportOptions,
+  type ExportResult,
   type MaterializedSkillRecord,
   type RefreshSourceResult,
   type RuntimeContextEntry,
@@ -98,6 +100,7 @@ import {
   type ProviderSkillSearchResult,
 } from './provider-bridge.js';
 import { materializeAgents } from './agent-materializer.js';
+import { exportLayout } from './exporter.js';
 
 export interface AddSourceResult {
   source: SourceRecord;
@@ -2240,6 +2243,32 @@ export class AgentPmService {
       installs,
       agents: pulledAgents,
       warnings,
+    };
+  }
+
+  /**
+   * Materialize the canonical skill library and managed agent installs into
+   * `options.dest` using a named plugin layout (currently only
+   * `antigravity`). See `packages/core/src/exporter.ts` for layout semantics.
+   */
+  async export(options: ExportOptions): Promise<ExportResult> {
+    await this.initialize();
+    const dest = path.resolve(this.cwd, options.dest);
+    const result = await exportLayout({
+      layout: options.layout,
+      dest,
+      skills: options.skills,
+      includeAgents: options.includeAgents ?? true,
+      install: options.install,
+      db: this.db,
+      skillsLibraryDir: this.paths.skillsLibraryDir,
+      env: this.env,
+    });
+    return {
+      success: true,
+      layout: options.layout,
+      dest,
+      ...result,
     };
   }
 

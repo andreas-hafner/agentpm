@@ -2,7 +2,9 @@ import { createRequire } from 'node:module';
 
 import { Command } from 'commander';
 
-const cliPackageVersion: string = createRequire(import.meta.url)('../package.json').version;
+const cliPackageVersion = (
+  createRequire(import.meta.url)('../package.json') as { version: string }
+).version;
 
 import {
   AgentPmService,
@@ -1811,6 +1813,83 @@ addExamples(
   [
     'agentpm adopt my-claude-skill --target codex,generic',
     'agentpm adopt .claude/skills/my-claude-skill',
+  ],
+);
+
+addExamples(
+  program
+    .command('export')
+    .description(
+      'Materialize the skill library and managed agents into a plugin layout',
+    )
+    .argument('<layout>', 'Named layout to export (antigravity)')
+    .option('--dest <dir>', 'Destination directory')
+    .option(
+      '--skills <names>',
+      'Comma-separated skill names to export. Default: all',
+    )
+    .option('--no-agents', 'Skip exporting managed agent installs')
+    .option(
+      '--install',
+      "Run the layout's plugin installer against --dest after export",
+    )
+    .option('--json', 'Print machine-readable JSON')
+    .action(
+      async (
+        layout: string,
+        flags: {
+          dest?: string;
+          skills?: string;
+          agents?: boolean;
+          install?: boolean;
+          json?: boolean;
+        },
+      ) => {
+        if (!flags.dest) {
+          throw new Error('--dest is required.');
+        }
+        const skills = flags.skills
+          ? flags.skills
+              .split(',')
+              .map((name) => name.trim())
+              .filter((name) => name.length > 0)
+          : undefined;
+        const result = await withService(
+          (service) =>
+            service.export({
+              layout,
+              dest: flags.dest!,
+              skills,
+              includeAgents: flags.agents,
+              install: flags.install,
+            }),
+          { statusMessages: true },
+        );
+        if (flags.json) {
+          printSuccessJson('export', { layout, result });
+          return;
+        }
+        if (result.success) {
+          console.log(
+            `\n${symbols.success} ${style.bold('Exported')} ${style.cyan(result.layout)} ${style.gray('->')} ${style.underline(result.dest)}`,
+          );
+          for (const name of result.skills) {
+            console.log(`  ${symbols.bullet} skill ${style.green(name)}`);
+          }
+          for (const name of result.agents) {
+            console.log(`  ${symbols.bullet} agent ${style.green(name)}`);
+          }
+          for (const warning of result.warnings) {
+            console.log(`  ${symbols.warning} ${style.yellow(warning)}`);
+          }
+          console.log('');
+        }
+      },
+    ),
+  [
+    'agentpm export antigravity --dest ./antigravity-plugin',
+    'agentpm export antigravity --dest ./plugin --skills release-helper,audio-mastering',
+    'agentpm export antigravity --dest ./plugin --install',
   ],
 );
 

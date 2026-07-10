@@ -359,6 +359,28 @@ export interface AdoptResult {
   warnings: string[];
 }
 
+export interface ExportOptions {
+  /** Named layout to materialize into `dest` (currently only `antigravity`). */
+  layout: string;
+  /** Destination directory the layout is materialized into. */
+  dest: string;
+  /** Skill names to export. Empty/undefined exports every library skill. */
+  skills?: string[] | undefined;
+  /** Also export managed agent installs. Defaults to true. */
+  includeAgents?: boolean | undefined;
+  /** Run the layout's plugin installer against `dest` after a successful export. */
+  install?: boolean | undefined;
+}
+
+export interface ExportResult {
+  success: boolean;
+  layout: string;
+  dest: string;
+  skills: string[];
+  agents: string[];
+  warnings: string[];
+}
+
 export interface DoctorIssue {
   severity: DoctorSeverity;
   code: string;
