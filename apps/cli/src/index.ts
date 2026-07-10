@@ -1,4 +1,8 @@
+import { createRequire } from 'node:module';
+
 import { Command } from 'commander';
+
+const cliPackageVersion: string = createRequire(import.meta.url)('../package.json').version;
 
 import {
   AgentPmService,
@@ -747,7 +751,7 @@ const rawCliArgs = process.argv.slice(2);
 program
   .name('agentpm')
   .description('Git-native skill and agent asset manager')
-  .version('0.9.2')
+  .version(cliPackageVersion)
   .exitOverride()
   .showHelpAfterError(false)
   .addHelpText('beforeAll', brandBlock());
