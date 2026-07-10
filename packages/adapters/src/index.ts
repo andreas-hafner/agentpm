@@ -149,6 +149,38 @@ function findEntryDirectories(
   return entries;
 }
 
+function findFlatFileEntries(
+  files: string[],
+  layout: LayoutDefinition,
+  absoluteRoot: string,
+  rootPath: string,
+): DetectedEntry[] {
+  if (layout.kind !== 'agent') {
+    return [];
+  }
+
+  const markerBasenames = new Set(ENTRY_MARKERS.agent);
+  return files
+    .filter((filePath) => {
+      if (path.dirname(filePath) !== absoluteRoot) {
+        return false;
+      }
+      if (path.extname(filePath).toLowerCase() !== '.md') {
+        return false;
+      }
+      return !markerBasenames.has(path.basename(filePath));
+    })
+    .map((filePath) => ({
+      name: path.basename(filePath, path.extname(filePath)),
+      relativePath: toPosixPath(path.relative(rootPath, filePath)),
+      rootRelativePath: toPosixPath(path.relative(absoluteRoot, filePath)),
+      adapter: layout.adapter,
+      kind: layout.kind,
+      warnings: [],
+      entryType: 'file' as const,
+    }));
+}
+
 async function detectGroupsForLayout(
   rootPath: string,
   layout: LayoutDefinition,
@@ -184,6 +216,8 @@ async function detectGroupsForLayout(
     kind: layout.kind,
     warnings: [],
   }));
+
+  entries.push(...findFlatFileEntries(files, layout, absoluteRoot, rootPath));
 
   if (entries.length === 0) {
     return [];
@@ -553,6 +587,13 @@ export function findDetectedEntry(
     }) ?? null
   );
 }
+
+export {
+  transformClaudeAgentToCodexToml,
+  isGeneratedCodexAgentFile,
+  CODEX_AGENT_GENERATED_MARKER,
+  type CodexAgentTransformResult,
+} from './transforms/codex-agent.js';
 
 export async function detectInstallScripts(
   rootPath: string,

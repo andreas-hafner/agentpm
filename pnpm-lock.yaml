@@ -87,6 +87,9 @@ importers:
       '@agentpm/shared':
         specifier: workspace:*
         version: link:../shared
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.1.1
 
   packages/config:
     dependencies:

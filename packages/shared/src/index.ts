@@ -90,6 +90,8 @@ export interface DetectedEntry {
   adapter: AdapterId;
   kind: EntryKind;
   warnings: string[];
+  /** 'directory' (default) or 'file' for a flat single-file entry such as a `.claude/agents/<name>.md`. */
+  entryType?: 'directory' | 'file';
 }
 
 export interface DetectedGroup {
@@ -326,6 +328,10 @@ export interface PullOptions {
   /** 'global' (default) installs into the home agent dirs; 'project' uses cwd. */
   scope?: InstallScope | undefined;
   yes?: boolean | undefined;
+  /** Also materialize flat/`.claude/agents` agent entries. Defaults to true. */
+  includeAgents?: boolean | undefined;
+  /** Opt-in transform applied in addition to the native `.claude/agents` copy. */
+  transform?: 'codex-agents' | undefined;
 }
 
 export interface PullResult {
@@ -334,6 +340,8 @@ export interface PullResult {
   revision: string | null;
   skills: string[];
   installs: MaterializedSkillRecord[];
+  /** Names of agent entries materialized into `.claude/agents`. */
+  agents: string[];
   warnings: string[];
 }
 
