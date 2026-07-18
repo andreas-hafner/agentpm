@@ -9,7 +9,8 @@ export type SourceKind = 'git' | 'local' | 'registry';
 export type ContentKind = 'git' | 'local';
 export type InstallScope = 'global' | 'project' | 'workspace';
 export type LocalInstallScope = Exclude<InstallScope, 'global'>;
-export type AdapterId = 'generic' | 'codex' | 'claude';
+export type AdapterId = 'generic' | 'codex' | 'claude' | 'kimi';
+export type AgentTransformId = 'codex-agents' | 'kimi-agents';
 export type EntryKind = 'skill' | 'agent' | 'subagent';
 export type LayoutMigrationRisk = 'safe' | 'remap' | 'breaking';
 export type DiffKind = 'added' | 'removed' | 'changed';
@@ -330,8 +331,8 @@ export interface PullOptions {
   yes?: boolean | undefined;
   /** Also materialize flat/`.claude/agents` agent entries. Defaults to true. */
   includeAgents?: boolean | undefined;
-  /** Opt-in transform applied in addition to the native `.claude/agents` copy. */
-  transform?: 'codex-agents' | undefined;
+  /** Opt-in transform(s) applied in addition to the native `.claude/agents` copy. */
+  transform?: AgentTransformId | AgentTransformId[] | undefined;
 }
 
 export interface PullResult {

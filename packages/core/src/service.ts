@@ -1957,6 +1957,7 @@ export class AgentPmService {
     const probes: Array<[AdapterId, string]> = [
       ['codex', '.codex'],
       ['claude', '.claude'],
+      ['kimi', '.kimi-code'],
       ['generic', '.agents'],
     ];
     const present: AdapterId[] = [];
@@ -1973,7 +1974,7 @@ export class AgentPmService {
     explicit: AdapterId[] | undefined,
     yes: boolean,
   ): Promise<AdapterId[]> {
-    const all: AdapterId[] = ['codex', 'claude', 'generic'];
+    const all: AdapterId[] = ['codex', 'claude', 'kimi', 'generic'];
     if (explicit && explicit.length > 0) {
       return explicit;
     }
@@ -2009,6 +2010,7 @@ export class AgentPmService {
       '.codex': 'codex',
       '.codex.cloud': 'codex',
       '.claude': 'claude',
+      '.kimi-code': 'kimi',
       '.agents': 'generic',
     };
     // Prefer an agent base directory (`.claude`, `.codex`, ...). It outranks the

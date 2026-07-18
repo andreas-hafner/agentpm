@@ -5,7 +5,11 @@ import path from 'node:path';
 import yaml from 'js-yaml';
 
 import { ensureDir, listChildDirectories, pathExists } from '@agentpm/fs';
-import { AgentPmError, type AdapterId } from '@agentpm/shared';
+import {
+  AgentPmError,
+  type AdapterId,
+  type AgentTransformId,
+} from '@agentpm/shared';
 
 /**
  * `agentpm deploy` materializes a declarative `deploy.yaml` onto the current
@@ -43,7 +47,7 @@ export interface DeployInstructionsEntry {
 export interface DeployPullConfig {
   from?: string | undefined;
   target?: AdapterId[] | undefined;
-  transform?: 'codex-agents' | undefined;
+  transform?: AgentTransformId[] | undefined;
   agents?: boolean | undefined;
 }
 
@@ -67,7 +71,8 @@ export interface LoadedDeployConfig {
   configDir: string;
 }
 
-const PULL_AGENT_VALUES = ['generic', 'codex', 'claude'] as const;
+const PULL_AGENT_VALUES = ['generic', 'codex', 'claude', 'kimi'] as const;
+const PULL_TRANSFORM_VALUES = ['codex-agents', 'kimi-agents'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -233,10 +238,18 @@ function parsePullSection(value: unknown): DeployPullConfig {
       requireEnum(item, PULL_AGENT_VALUES, `${label}.target[${index}]`),
     );
   }
-  const transform =
-    entry.transform === undefined
-      ? undefined
-      : requireEnum(entry.transform, ['codex-agents'] as const, `${label}.transform`);
+  let transform: AgentTransformId[] | undefined;
+  if (entry.transform !== undefined) {
+    const rawTransforms = Array.isArray(entry.transform)
+      ? entry.transform
+      : [entry.transform];
+    if (rawTransforms.length === 0) {
+      throw new AgentPmError(`${label}.transform must not be an empty array.`);
+    }
+    transform = rawTransforms.map((item, index) =>
+      requireEnum(item, PULL_TRANSFORM_VALUES, `${label}.transform[${index}]`),
+    );
+  }
   const agents =
     entry.agents === undefined ? undefined : requireBoolean(entry.agents, `${label}.agents`);
   return { from, target, transform, agents };

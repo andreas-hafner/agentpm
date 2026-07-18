@@ -906,7 +906,7 @@ describe('update and cli flows', () => {
       const commands = payload.guides.flatMap((guide) => guide.commands);
       expect(commands).toContain('agentpm push --all --to my-skills --json');
       expect(commands).toContain(
-        'agentpm pull --from my-skills --target codex,claude,generic --yes --json',
+        'agentpm pull --from my-skills --target codex,claude,kimi,generic --yes --json',
       );
       expect(commands).not.toContain('agentpm push');
       expect(

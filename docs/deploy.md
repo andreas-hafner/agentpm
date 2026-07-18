@@ -41,8 +41,8 @@ instructions:
 
 pull:
   from: my-skills
-  target: [claude, codex]
-  transform: codex-agents
+  target: [claude, codex, kimi]
+  transform: [codex-agents, kimi-agents]
   agents: true
 
 export:
@@ -93,9 +93,10 @@ result is left untouched.
 Delegates to the same logic as `agentpm pull`, with `yes: true` semantics (no prompts):
 
 - `from` — target id or locator to pull from (same as `agentpm pull --from`).
-- `target` — subset of `claude`, `codex`, `generic` to fan skills out into (same as
-  `agentpm pull --target`).
-- `transform` — currently only `codex-agents`.
+- `target` — subset of `claude`, `codex`, `kimi`, `generic` to fan skills out into (same
+  as `agentpm pull --target`).
+- `transform` — a single value or list of `codex-agents` and `kimi-agents`. If present, the
+  list must be non-empty (`transform: []` is rejected at load time, same as an unknown id).
 - `agents` — also materialize `.claude/agents` entries (default `true`).
 
 ### `export`

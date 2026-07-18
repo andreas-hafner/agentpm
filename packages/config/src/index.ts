@@ -155,8 +155,15 @@ function optionalAdapterId(
   if (!target) {
     return undefined;
   }
-  if (target !== 'codex' && target !== 'claude' && target !== 'generic') {
-    throw new AgentPmError(`${label} must be one of: codex, claude, generic.`);
+  if (
+    target !== 'codex' &&
+    target !== 'claude' &&
+    target !== 'kimi' &&
+    target !== 'generic'
+  ) {
+    throw new AgentPmError(
+      `${label} must be one of: codex, claude, kimi, generic.`,
+    );
   }
   return target;
 }

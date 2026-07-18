@@ -17,7 +17,7 @@ import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
 
 import { resolveTargetAddArgs } from './target-add.js';
 
-type AgentId = 'codex' | 'claude' | 'generic';
+type AgentId = 'codex' | 'claude' | 'kimi' | 'generic';
 type ScopeId = 'global' | 'project' | 'workspace';
 type QuickstartFlow = 'install' | 'team' | 'sync';
 
@@ -25,7 +25,7 @@ function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-const KNOWN_AGENTS: AgentId[] = ['codex', 'claude', 'generic'];
+const KNOWN_AGENTS: AgentId[] = ['codex', 'claude', 'kimi', 'generic'];
 
 function parseAgents(value: string | undefined): AgentId[] | undefined {
   if (!value) {
@@ -55,6 +55,34 @@ function parseAgent(value: string | undefined): AgentId | undefined {
     throw new Error('--target accepts exactly one agent for this command.');
   }
   return agents[0];
+}
+
+type TransformId = 'codex-agents' | 'kimi-agents';
+
+const KNOWN_TRANSFORMS: TransformId[] = ['codex-agents', 'kimi-agents'];
+
+function parseTransforms(value: string | undefined): TransformId[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const requested = value
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+  if (requested.length === 0) {
+    throw new Error(
+      `--transform requires at least one value. Use one of: ${KNOWN_TRANSFORMS.join(', ')}.`,
+    );
+  }
+  const invalid = requested.filter(
+    (part) => !KNOWN_TRANSFORMS.includes(part as TransformId),
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `Unknown transform(s): ${invalid.join(', ')}. Use one of: ${KNOWN_TRANSFORMS.join(', ')}.`,
+    );
+  }
+  return requested as TransformId[];
 }
 
 function parseScope(value: string | undefined): ScopeId | undefined {
@@ -112,11 +140,11 @@ const QUICKSTART_GUIDES: Record<
     commands: [
       'agentpm target add my-skills travelhawk/skills-vault --default --json',
       'agentpm push --all --to my-skills --json',
-      'agentpm pull --from my-skills --target codex,claude,generic --yes --json',
+      'agentpm pull --from my-skills --target codex,claude,kimi,generic --yes --json',
     ],
     notes: [
       'Use this when you want one canonical skill library that fans out to Codex, Claude, and generic agents.',
-      'Add --target codex,claude,generic to control which runtimes receive pulled skills.',
+      'Add --target codex,claude,kimi,generic to control which runtimes receive pulled skills.',
     ],
   },
 };
@@ -305,10 +333,15 @@ function resolveTarget(value?: string): InstallOptions['target'] {
   if (!value) {
     return undefined;
   }
-  if (value === 'codex' || value === 'claude' || value === 'generic') {
+  if (
+    value === 'codex' ||
+    value === 'claude' ||
+    value === 'kimi' ||
+    value === 'generic'
+  ) {
     return value;
   }
-  throw new Error('--target must be one of: codex, claude, generic');
+  throw new Error('--target must be one of: codex, claude, kimi, generic');
 }
 
 function printInspection(
@@ -858,7 +891,7 @@ addExamples(
     .option('--workspace-root <path>', 'Explicit workspace root')
     .option(
       '--target <target>',
-      'Install only entries for codex, claude, or generic',
+      'Install only entries for codex, claude, kimi, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
     .option('--json', 'Print machine-readable JSON')
@@ -927,7 +960,7 @@ skillsCmd
     'Installed skill name or owner/repo@skill selector',
   )
   .option('--purge', 'Also purge unused cache data')
-  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, kimi, generic)')
   .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
   .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
@@ -1111,7 +1144,7 @@ addExamples(
       'Configured source id, locator, or a direct repo locator',
     )
     .option('--refresh', 'Refresh the configured source before listing')
-    .option('--target <target>', 'Filter entries for codex, claude, or generic')
+    .option('--target <target>', 'Filter entries for codex, claude, kimi, or generic')
     .option('--json', 'Print machine-readable JSON')
     .action(
       async (
@@ -1285,7 +1318,7 @@ program
   )
   .option(
     '--target <target>',
-    'Check a runtime target: codex, claude, or generic',
+    'Check a runtime target: codex, claude, kimi, or generic',
   )
   .action(
     async (target: string, flags: { skill?: string; target?: string }) => {
@@ -1377,7 +1410,7 @@ addExamples(
     .option('--ref <ref>', 'Git branch, tag, or revision')
     .option(
       '--target <target>',
-      'Install only entries for codex, claude, or generic',
+      'Install only entries for codex, claude, kimi, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
     .option('--json', 'Print machine-readable JSON')
@@ -1532,7 +1565,7 @@ program
   .command('remove')
   .argument('<name>', 'Installed name')
   .option('--purge', 'Also purge unused cache data')
-  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, kimi, generic)')
   .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
   .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
@@ -1683,7 +1716,7 @@ addExamples(
     .option('--from <target>', 'Target id or locator to pull from')
     .option(
       '--target <agents>',
-      'Comma-separated agents to install into (codex,claude,generic). Default: auto-detect.',
+      'Comma-separated agents to install into (codex,claude,kimi,generic). Default: auto-detect.',
     )
     .option('--project', 'Install into the current project instead of globally')
     .option('--yes', 'Skip prompts and install to all detected agents')
@@ -1692,8 +1725,8 @@ addExamples(
       'Skip materializing .claude/agents entries into the current scope',
     )
     .option(
-      '--transform <kind>',
-      'Also generate an additional format for pulled agents (codex-agents)',
+      '--transform <kinds>',
+      'Comma-separated additional formats for pulled agents (codex-agents,kimi-agents)',
     )
     .option('--json', 'Print machine-readable JSON')
     .action(
@@ -1709,11 +1742,7 @@ addExamples(
           json?: boolean;
         },
       ) => {
-        if (flags.transform && flags.transform !== 'codex-agents') {
-          throw new Error(
-            `Unknown transform "${flags.transform}". Use one of: codex-agents.`,
-          );
-        }
+        const transforms = parseTransforms(flags.transform);
         const result = await withService(
           (service) =>
             service.pull({
@@ -1723,7 +1752,7 @@ addExamples(
               scope: flags.project ? 'project' : 'global',
               yes: flags.yes,
               includeAgents: flags.agents,
-              transform: flags.transform as 'codex-agents' | undefined,
+              transform: transforms,
             }),
           { statusMessages: true },
         );
@@ -1773,7 +1802,7 @@ addExamples(
     )
     .option(
       '--target <agents>',
-      'Comma-separated agents to also install into (codex,claude,generic)',
+      'Comma-separated agents to also install into (codex,claude,kimi,generic)',
     )
     .option('--yes', 'Skip prompts and install to all detected agents')
     .option('--json', 'Print machine-readable JSON')
