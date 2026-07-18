@@ -8,6 +8,25 @@ This repo uses a simple release workflow:
 - each release-facing cycle bumps the workspace package versions together
 - changelog and version bumps should land in the same commit when practical
 
+## [0.13.0] - 2026-07-18
+
+### Added
+
+- First-class `kimi` runtime target for Kimi Code (kimi-code >= 0.27.0):
+  `agentpm pull --target kimi` symlinks the canonical skill library into
+  `~/.kimi-code/skills`, with full detection/doctor/config support
+  alongside codex, claude, and generic.
+- New `kimi-agents` transform: each flat `.claude/agents/<name>.md` entry
+  is emitted as a generated Kimi delegation skill at
+  `.kimi-code/skills/agent-<name>/SKILL.md`. Kimi Code has no
+  user-defined sub-agents, so the skill instructs Kimi's built-in Agent
+  tool to spawn the role (read-only tool sets map to the `explore`
+  profile, everything else to `coder`). Files without the generated
+  marker are never overwritten.
+- `pull.transform` in `deploy.yaml` and `--transform` on the CLI accept a
+  list (e.g. `[codex-agents, kimi-agents]` / `codex-agents,kimi-agents`)
+  so multiple agent formats materialize in one pull/deploy.
+
 ## [0.12.3] - 2026-07-10
 
 ### Fixed
