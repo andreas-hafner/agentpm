@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Git-native skill management for AI coding agents.</strong><br />
-  Discover, install, sync, and publish skills across Codex, Claude, and generic agent layouts.
+  Discover, install, sync, and publish skills across Codex, Claude, Kimi, and generic agent layouts.
 </p>
 
 <p align="center">
@@ -103,7 +103,7 @@ You are organizing this machine's AI coding skills with AgentPM. Work non-intera
 Goal:
 - Install AgentPM if it is missing.
 - Inspect the current AgentPM state.
-- Adopt existing local skills from Codex, Claude, and generic agent folders into AgentPM's canonical library.
+- Adopt existing local skills from Codex, Claude, Kimi, and generic agent folders into AgentPM's canonical library.
 - Optionally sync the canonical library to the configured Git target.
 - Leave the system in a recoverable state and report exactly what changed.
 

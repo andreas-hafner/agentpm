@@ -720,7 +720,7 @@ describe('install and manifest flows', () => {
     });
     try {
       await expect(service.syncManifest()).rejects.toThrow(
-        'skills[].target must be one of: codex, claude, generic',
+        'skills[].target must be one of: codex, claude, kimi, generic',
       );
       const issues = await service.doctor();
       expect(issues.some((issue) => issue.code === 'config-invalid')).toBe(

@@ -17,7 +17,7 @@ import { createPromptApi, promptToConfirm, promptToInput } from '@agentpm/ui';
 
 import { resolveTargetAddArgs } from './target-add.js';
 
-type AgentId = 'codex' | 'claude' | 'generic';
+type AgentId = 'codex' | 'claude' | 'kimi' | 'generic';
 type ScopeId = 'global' | 'project' | 'workspace';
 type QuickstartFlow = 'install' | 'team' | 'sync';
 
@@ -25,7 +25,7 @@ function collect(value: string, previous: string[]): string[] {
   return [...previous, value];
 }
 
-const KNOWN_AGENTS: AgentId[] = ['codex', 'claude', 'generic'];
+const KNOWN_AGENTS: AgentId[] = ['codex', 'claude', 'kimi', 'generic'];
 
 function parseAgents(value: string | undefined): AgentId[] | undefined {
   if (!value) {
@@ -55,6 +55,29 @@ function parseAgent(value: string | undefined): AgentId | undefined {
     throw new Error('--target accepts exactly one agent for this command.');
   }
   return agents[0];
+}
+
+type TransformId = 'codex-agents' | 'kimi-agents';
+
+const KNOWN_TRANSFORMS: TransformId[] = ['codex-agents', 'kimi-agents'];
+
+function parseTransforms(value: string | undefined): TransformId[] | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const requested = value
+    .split(',')
+    .map((part) => part.trim().toLowerCase())
+    .filter((part) => part.length > 0);
+  const invalid = requested.filter(
+    (part) => !KNOWN_TRANSFORMS.includes(part as TransformId),
+  );
+  if (invalid.length > 0) {
+    throw new Error(
+      `Unknown transform(s): ${invalid.join(', ')}. Use one of: ${KNOWN_TRANSFORMS.join(', ')}.`,
+    );
+  }
+  return requested as TransformId[];
 }
 
 function parseScope(value: string | undefined): ScopeId | undefined {
@@ -305,10 +328,15 @@ function resolveTarget(value?: string): InstallOptions['target'] {
   if (!value) {
     return undefined;
   }
-  if (value === 'codex' || value === 'claude' || value === 'generic') {
+  if (
+    value === 'codex' ||
+    value === 'claude' ||
+    value === 'kimi' ||
+    value === 'generic'
+  ) {
     return value;
   }
-  throw new Error('--target must be one of: codex, claude, generic');
+  throw new Error('--target must be one of: codex, claude, kimi, generic');
 }
 
 function printInspection(
@@ -1683,7 +1711,7 @@ addExamples(
     .option('--from <target>', 'Target id or locator to pull from')
     .option(
       '--target <agents>',
-      'Comma-separated agents to install into (codex,claude,generic). Default: auto-detect.',
+      'Comma-separated agents to install into (codex,claude,kimi,generic). Default: auto-detect.',
     )
     .option('--project', 'Install into the current project instead of globally')
     .option('--yes', 'Skip prompts and install to all detected agents')
@@ -1692,8 +1720,8 @@ addExamples(
       'Skip materializing .claude/agents entries into the current scope',
     )
     .option(
-      '--transform <kind>',
-      'Also generate an additional format for pulled agents (codex-agents)',
+      '--transform <kinds>',
+      'Comma-separated additional formats for pulled agents (codex-agents,kimi-agents)',
     )
     .option('--json', 'Print machine-readable JSON')
     .action(
@@ -1709,11 +1737,7 @@ addExamples(
           json?: boolean;
         },
       ) => {
-        if (flags.transform && flags.transform !== 'codex-agents') {
-          throw new Error(
-            `Unknown transform "${flags.transform}". Use one of: codex-agents.`,
-          );
-        }
+        const transforms = parseTransforms(flags.transform);
         const result = await withService(
           (service) =>
             service.pull({
@@ -1723,7 +1747,7 @@ addExamples(
               scope: flags.project ? 'project' : 'global',
               yes: flags.yes,
               includeAgents: flags.agents,
-              transform: flags.transform as 'codex-agents' | undefined,
+              transform: transforms,
             }),
           { statusMessages: true },
         );

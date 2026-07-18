@@ -62,6 +62,12 @@ const LAYOUTS: LayoutDefinition[] = [
     kind: 'agent',
   },
   {
+    adapter: 'kimi',
+    label: 'Kimi skills',
+    relativeRoot: '.kimi-code/skills',
+    kind: 'skill',
+  },
+  {
     adapter: 'generic',
     label: 'Generic skills',
     relativeRoot: '.agents/skills',
@@ -92,6 +98,7 @@ const LAYOUTS: LayoutDefinition[] = [
 const SKILL_ROOTS: Record<AdapterId, string> = {
   codex: '.codex/skills',
   claude: '.claude/skills',
+  kimi: '.kimi-code/skills',
   generic: '.agents/skills',
 };
 
@@ -259,6 +266,7 @@ function buildCompatibility(
   const scoreByAdapter: Record<AdapterId, number> = {
     codex: 100,
     claude: 100,
+    kimi: 100,
     generic: 85,
   };
 
@@ -361,6 +369,7 @@ function createAdapter(id: AdapterId): SkillAdapter {
         claude: {
           agent: '.claude/agents',
         },
+        kimi: {},
         generic: {
           subagent: 'subagents',
         },
@@ -443,6 +452,7 @@ function createAdapter(id: AdapterId): SkillAdapter {
 export const ADAPTERS: SkillAdapter[] = [
   createAdapter('codex'),
   createAdapter('claude'),
+  createAdapter('kimi'),
   createAdapter('generic'),
 ];
 
@@ -594,6 +604,13 @@ export {
   CODEX_AGENT_GENERATED_MARKER,
   type CodexAgentTransformResult,
 } from './transforms/codex-agent.js';
+
+export {
+  transformClaudeAgentToKimiSkill,
+  isGeneratedKimiAgentSkill,
+  KIMI_AGENT_SKILL_GENERATED_MARKER,
+  type KimiAgentTransformResult,
+} from './transforms/kimi-agent.js';
 
 export {
   parseFrontmatter,
