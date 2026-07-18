@@ -55,11 +55,16 @@ function coerceAdapterId(
   if (value === undefined || value === null) {
     return undefined;
   }
-  if (value === 'generic' || value === 'codex' || value === 'claude') {
+  if (
+    value === 'generic' ||
+    value === 'codex' ||
+    value === 'claude' ||
+    value === 'kimi'
+  ) {
     return value;
   }
   throw new AgentPmError(
-    `Registry entry ${field} must be one of: codex, claude, generic.`,
+    `Registry entry ${field} must be one of: codex, claude, kimi, generic.`,
   );
 }
 

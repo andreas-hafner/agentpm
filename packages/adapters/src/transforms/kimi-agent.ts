@@ -1,5 +1,3 @@
-import { AgentPmError } from '@agentpm/shared';
-
 import { parseFrontmatter } from './frontmatter.js';
 
 /** Marker line identifying a Kimi skill AgentPM generated. Never overwrite a file that lacks it. */
@@ -10,19 +8,10 @@ export const KIMI_AGENT_SKILL_GENERATED_MARKER =
 const EXPLORE_SAFE_TOOLS = new Set(['read', 'grep', 'glob']);
 
 export interface KimiAgentTransformResult {
-  /** `agent-<kebab-case name>`, the skill directory under `.kimi-code/skills/`. */
+  /** `agent-<source file base name>`, the skill directory under `.kimi-code/skills/`. */
   dirName: string;
   /** Full `SKILL.md` content for that directory. */
   skillMd: string;
-}
-
-function toKebabCase(value: string): string {
-  const slug = value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-  return slug.length > 0 ? slug : 'agent';
 }
 
 function parseToolsField(value: unknown): string[] {
@@ -62,20 +51,27 @@ function pickSubagentType(tools: string[]): 'explore' | 'coder' {
  * the role is emulated: the generated skill instructs the main agent to
  * spawn Kimi's built-in `Agent` tool with the role brief as the prompt
  * preamble. Pure function: no filesystem access.
+ *
+ * `sourceFileName` is the agent file's own basename (e.g. `builder.md`),
+ * NOT the frontmatter `name` field: `.claude/agents/*.md` filenames are
+ * already unique within their directory (the filesystem enforces it),
+ * while the free-text frontmatter `name` is not - two files with
+ * differently-formatted names (`Code Review` vs `code_review`) can both
+ * normalize to the same slug and silently overwrite each other's
+ * generated skill. The slug and the provenance marker are keyed off the
+ * real filename VERBATIM (only the `.md` extension is stripped, no case
+ * folding or separator normalization) so two distinct source files can
+ * never collide, and the marker always points at a file that actually
+ * exists.
  */
 export function transformClaudeAgentToKimiSkill(
   markdown: string,
+  sourceFileName: string,
 ): KimiAgentTransformResult {
   const { data, body } = parseFrontmatter(markdown);
 
-  const rawName = typeof data.name === 'string' ? data.name : '';
-  if (!rawName.trim()) {
-    throw new AgentPmError(
-      'Cannot transform a Claude agent to a Kimi skill without a frontmatter "name" field.',
-    );
-  }
-  const kebabName = toKebabCase(rawName);
-  const dirName = `agent-${kebabName}`;
+  const sourceBaseName = sourceFileName.replace(/\.md$/i, '');
+  const dirName = `agent-${sourceBaseName}`;
 
   const description = typeof data.description === 'string' ? data.description : '';
   const subagentType = pickSubagentType(parseToolsField(data.tools));
@@ -88,9 +84,9 @@ export function transformClaudeAgentToKimiSkill(
     // JSON string escaping is valid YAML and keeps arbitrary description text safe.
     `description: ${JSON.stringify(description)}`,
     '---',
-    `${KIMI_AGENT_SKILL_GENERATED_MARKER} .claude/agents/${kebabName}.md - do not edit -->`,
+    `${KIMI_AGENT_SKILL_GENERATED_MARKER} .claude/agents/${sourceFileName} - do not edit -->`,
     '',
-    `This skill delegates work to the "${kebabName}" role. Do NOT perform the task`,
+    `This skill delegates work to the "${sourceBaseName}" role. Do NOT perform the task`,
     'in the current context. Instead, launch a sub-agent with the Agent tool',
     `(subagent_type: "${subagentType}") and place the role brief below verbatim at`,
     'the start of the sub-agent prompt, followed by the concrete task and all',
@@ -105,7 +101,15 @@ export function transformClaudeAgentToKimiSkill(
   return { dirName, skillMd };
 }
 
-/** True when `content` contains the AgentPM-generated Kimi skill marker. */
+/**
+ * True when `content` is a Kimi skill AgentPM generated. `SKILL.md` always
+ * starts with YAML frontmatter (name/description), so - unlike the Codex
+ * TOML marker, which is the literal first line of the file - the anchor is
+ * the start of the body immediately following the frontmatter. A
+ * hand-written skill that merely mentions or quotes the marker text
+ * elsewhere in its body is never mistaken for a generated one.
+ */
 export function isGeneratedKimiAgentSkill(content: string): boolean {
-  return content.includes(KIMI_AGENT_SKILL_GENERATED_MARKER);
+  const { body } = parseFrontmatter(content);
+  return body.trimStart().startsWith(KIMI_AGENT_SKILL_GENERATED_MARKER);
 }

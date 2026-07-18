@@ -243,6 +243,9 @@ function parsePullSection(value: unknown): DeployPullConfig {
     const rawTransforms = Array.isArray(entry.transform)
       ? entry.transform
       : [entry.transform];
+    if (rawTransforms.length === 0) {
+      throw new AgentPmError(`${label}.transform must not be an empty array.`);
+    }
     transform = rawTransforms.map((item, index) =>
       requireEnum(item, PULL_TRANSFORM_VALUES, `${label}.transform[${index}]`),
     );

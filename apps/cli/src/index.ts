@@ -69,6 +69,11 @@ function parseTransforms(value: string | undefined): TransformId[] | undefined {
     .split(',')
     .map((part) => part.trim().toLowerCase())
     .filter((part) => part.length > 0);
+  if (requested.length === 0) {
+    throw new Error(
+      `--transform requires at least one value. Use one of: ${KNOWN_TRANSFORMS.join(', ')}.`,
+    );
+  }
   const invalid = requested.filter(
     (part) => !KNOWN_TRANSFORMS.includes(part as TransformId),
   );
@@ -135,11 +140,11 @@ const QUICKSTART_GUIDES: Record<
     commands: [
       'agentpm target add my-skills travelhawk/skills-vault --default --json',
       'agentpm push --all --to my-skills --json',
-      'agentpm pull --from my-skills --target codex,claude,generic --yes --json',
+      'agentpm pull --from my-skills --target codex,claude,kimi,generic --yes --json',
     ],
     notes: [
       'Use this when you want one canonical skill library that fans out to Codex, Claude, and generic agents.',
-      'Add --target codex,claude,generic to control which runtimes receive pulled skills.',
+      'Add --target codex,claude,kimi,generic to control which runtimes receive pulled skills.',
     ],
   },
 };
@@ -886,7 +891,7 @@ addExamples(
     .option('--workspace-root <path>', 'Explicit workspace root')
     .option(
       '--target <target>',
-      'Install only entries for codex, claude, or generic',
+      'Install only entries for codex, claude, kimi, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
     .option('--json', 'Print machine-readable JSON')
@@ -955,7 +960,7 @@ skillsCmd
     'Installed skill name or owner/repo@skill selector',
   )
   .option('--purge', 'Also purge unused cache data')
-  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, kimi, generic)')
   .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
   .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
@@ -1139,7 +1144,7 @@ addExamples(
       'Configured source id, locator, or a direct repo locator',
     )
     .option('--refresh', 'Refresh the configured source before listing')
-    .option('--target <target>', 'Filter entries for codex, claude, or generic')
+    .option('--target <target>', 'Filter entries for codex, claude, kimi, or generic')
     .option('--json', 'Print machine-readable JSON')
     .action(
       async (
@@ -1313,7 +1318,7 @@ program
   )
   .option(
     '--target <target>',
-    'Check a runtime target: codex, claude, or generic',
+    'Check a runtime target: codex, claude, kimi, or generic',
   )
   .action(
     async (target: string, flags: { skill?: string; target?: string }) => {
@@ -1405,7 +1410,7 @@ addExamples(
     .option('--ref <ref>', 'Git branch, tag, or revision')
     .option(
       '--target <target>',
-      'Install only entries for codex, claude, or generic',
+      'Install only entries for codex, claude, kimi, or generic',
     )
     .option('--yes', 'Accept safe install prompts automatically')
     .option('--json', 'Print machine-readable JSON')
@@ -1560,7 +1565,7 @@ program
   .command('remove')
   .argument('<name>', 'Installed name')
   .option('--purge', 'Also purge unused cache data')
-  .option('--target <agent>', 'Remove one target agent (codex, claude, generic)')
+  .option('--target <agent>', 'Remove one target agent (codex, claude, kimi, generic)')
   .option('--scope <scope>', 'Remove one install scope (global, project, workspace)')
   .option('--path <path>', 'Remove the install at an exact target path')
   .option('--json', 'Print machine-readable JSON')
@@ -1797,7 +1802,7 @@ addExamples(
     )
     .option(
       '--target <agents>',
-      'Comma-separated agents to also install into (codex,claude,generic)',
+      'Comma-separated agents to also install into (codex,claude,kimi,generic)',
     )
     .option('--yes', 'Skip prompts and install to all detected agents')
     .option('--json', 'Print machine-readable JSON')

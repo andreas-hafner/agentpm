@@ -18,14 +18,26 @@ This repo uses a simple release workflow:
   alongside codex, claude, and generic.
 - New `kimi-agents` transform: each flat `.claude/agents/<name>.md` entry
   is emitted as a generated Kimi delegation skill at
-  `.kimi-code/skills/agent-<name>/SKILL.md`. Kimi Code has no
-  user-defined sub-agents, so the skill instructs Kimi's built-in Agent
+  `.kimi-code/skills/agent-<source-file-basename>/SKILL.md`. Kimi Code has
+  no user-defined sub-agents, so the skill instructs Kimi's built-in Agent
   tool to spawn the role (read-only tool sets map to the `explore`
-  profile, everything else to `coder`). Files without the generated
-  marker are never overwritten.
+  profile, everything else to `coder`). The slug and the provenance
+  marker are keyed off the agent file's own filename (already unique
+  within `.claude/agents/`), not its free-text frontmatter `name`, so two
+  differently-formatted agent names can never collide into the same
+  generated skill. Files without the generated marker (anchored to the
+  start of the body, right after frontmatter) are never overwritten.
+- Generated `agent-*` Kimi skills are excluded from skill *detection*
+  (`agentpm push`/`inspect`/`doctor`) across every skill scan root,
+  including the generic catch-all layout - so they never round-trip into
+  the canonical skill library as if they were user-authored.
 - `pull.transform` in `deploy.yaml` and `--transform` on the CLI accept a
   list (e.g. `[codex-agents, kimi-agents]` / `codex-agents,kimi-agents`)
-  so multiple agent formats materialize in one pull/deploy.
+  so multiple agent formats materialize in one pull/deploy. An empty
+  list/value is rejected instead of silently applying no transform.
+- Registry indexes (`agentpm skills search/install` static YAML/JSON
+  sources) now accept `kimi` as a valid `target`/`adapterHint`, matching
+  the CLI, project config, and `deploy.yaml`.
 
 ## [0.12.3] - 2026-07-10
 
